@@ -528,6 +528,148 @@ textarea:focus {
   color: var(--text-muted);
 }
 
+/* --- Time Machine stack ------------------------------------------------- */
+
+.results {
+  position: relative;
+  perspective: 1400px;
+  perspective-origin: 50% 18%;
+}
+
+.stack-card {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 50%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  cursor: pointer;
+  transform-origin: 50% 0%;
+  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.32s ease,
+    background 0.18s ease,
+    border-color 0.18s ease;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+  will-change: transform, opacity;
+}
+
+.stack-card:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-hi);
+}
+
+.stack-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft), 0 18px 60px rgba(0, 0, 0, 0.45);
+}
+
+/* Layer geometry — focused card front-center, older cards recede into the
+   scene (Time Machine style). The data-layer attribute is set by JS based
+   on (index - stackFocus). */
+.stack-card[data-layer="0"] {
+  transform: translate(0, -56%) scale(1);
+  opacity: 1;
+  z-index: 50;
+}
+.stack-card[data-layer="1"] {
+  transform: translate(0, -66%) scale(0.96);
+  opacity: 0.82;
+  z-index: 49;
+}
+.stack-card[data-layer="2"] {
+  transform: translate(0, -74%) scale(0.93);
+  opacity: 0.66;
+  z-index: 48;
+}
+.stack-card[data-layer="3"] {
+  transform: translate(0, -80%) scale(0.90);
+  opacity: 0.50;
+  z-index: 47;
+}
+.stack-card[data-layer="4"] {
+  transform: translate(0, -85%) scale(0.87);
+  opacity: 0.36;
+  z-index: 46;
+}
+.stack-card[data-layer="5"] {
+  transform: translate(0, -89%) scale(0.84);
+  opacity: 0.22;
+  z-index: 45;
+}
+.stack-card[data-layer="6"] {
+  transform: translate(0, -92%) scale(0.82);
+  opacity: 0.12;
+  z-index: 44;
+}
+/* Card we've passed (newer than focus) — flies away upward, out of view. */
+.stack-card[data-layer="-1"] {
+  transform: translate(0, -120%) scale(1.04);
+  opacity: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.stack-card header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.stack-card .proj {
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.stack-card .ts {
+  color: var(--text-muted);
+  flex: 1;
+}
+.stack-card .title {
+  margin: 4px 0 10px 0;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+.stack-card .meta-row {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+.stack-card .branch {
+  color: var(--text-muted);
+}
+.stack-card footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.stack-card .badge.err {
+  background: rgba(255, 69, 58, 0.18);
+  color: var(--red);
+  border-color: rgba(255, 69, 58, 0.45);
+}
+
+.stack-counter {
+  position: absolute;
+  bottom: 14px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.4px;
+  pointer-events: none;
+}
+
 /* --- Replay ------------------------------------------------------------- */
 
 .replay-modal {

@@ -16,6 +16,11 @@ const state = {
   // B3: monotonically-increasing query id; renderResults drops responses
   // whose generation is older than the latest dispatched query.
   queryGen: 0,
+  // Time Machine stack: loaded on boot via list_sessions (no Qdrant needed),
+  // shown when there's no active search query.
+  stack: [],
+  stackFocus: 0,
+  mode: "stack", // "stack" | "search"
   replay: {
     sessionId: null,
     turns: [],
@@ -39,11 +44,174 @@ const RECALL_CACHE_MAX = 50;
 document.addEventListener("DOMContentLoaded", async () => {
   buildLensSliders();
   attachEvents();
+  attachStackEvents();
   attachReplayEvents();
   attachRecallBannerEvents();
+  // Kick off both pollers; the stack uses pure jsonl parsing so it succeeds
+  // even before Qdrant comes up, giving the user something to look at
+  // immediately.
+  loadInitialStack();
   await pollUntilReady();
   startRecallPolling();
 });
+
+// ---------------------------------------------------------------------------
+// Time Machine stack — initial view + arrow/wheel nav
+// ---------------------------------------------------------------------------
+
+async function loadInitialStack() {
+  try {
+    const sessions = await invoke("list_sessions", { limit: 60 });
+    state.stack = sessions || [];
+    state.stackFocus = 0;
+    if (state.mode === "stack") renderStack();
+  } catch (err) {
+    console.warn("list_sessions failed:", err);
+  }
+}
+
+function attachStackEvents() {
+  document.addEventListener("keydown", (e) => {
+    if (state.mode !== "stack") return;
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      advanceStack(+1); // older
+    } else if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+      e.preventDefault();
+      advanceStack(-1); // newer
+    } else if (e.key === "Enter") {
+      const focused = state.stack[state.stackFocus];
+      if (focused) selectSession(focused.session_id);
+    }
+  });
+  const results = document.getElementById("results");
+  let wheelAccum = 0;
+  results.addEventListener(
+    "wheel",
+    (e) => {
+      if (state.mode !== "stack") return;
+      e.preventDefault();
+      wheelAccum += e.deltaY;
+      while (Math.abs(wheelAccum) > 60) {
+        const step = wheelAccum > 0 ? +1 : -1;
+        advanceStack(step);
+        wheelAccum -= step * 60;
+      }
+    },
+    { passive: false },
+  );
+}
+
+function advanceStack(direction) {
+  const total = state.stack.length;
+  if (!total) return;
+  const next = Math.max(0, Math.min(total - 1, state.stackFocus + direction));
+  if (next === state.stackFocus) return;
+  state.stackFocus = next;
+  renderStack();
+}
+
+function renderStack() {
+  const root = document.getElementById("results");
+  // Remove search-mode cards + empty hint, leave stack-card nodes for diff.
+  root.querySelectorAll(".card, .empty").forEach((n) => n.remove());
+
+  if (!state.stack.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Scanning ~/.claude/projects…";
+    root.appendChild(empty);
+    return;
+  }
+
+  // Re-render the stack window (focus +/- a few layers).
+  root.querySelectorAll(".stack-card").forEach((n) => n.remove());
+
+  const window = 6; // visible behind the focused card
+  const start = Math.max(0, state.stackFocus - 1);
+  const end = Math.min(state.stack.length, state.stackFocus + window + 1);
+
+  for (let i = start; i < end; i++) {
+    const s = state.stack[i];
+    const layer = i - state.stackFocus;
+    const card = document.createElement("article");
+    card.className = "stack-card";
+    card.dataset.layer = String(layer);
+    card.dataset.sessionId = s.session_id;
+    const ts = (s.start_iso || "").slice(0, 16).replace("T", " ");
+    const title = s.ai_title || "(untitled)";
+    const errBadge = s.has_errors ? '<span class="badge err">errors</span>' : "";
+    card.innerHTML = `
+      <header>
+        <span class="proj">${escapeHtml(s.project_name || "?")}</span>
+        <span class="ts">${ts}</span>
+        ${errBadge}
+      </header>
+      <h3 class="title">${escapeHtml(title)}</h3>
+      <div class="meta-row">
+        <span class="meta">${s.user_turns} user · ${s.assistant_turns} assistant · ${s.tool_count} tools</span>
+        <span class="branch">${escapeHtml(s.git_branch || "-")}</span>
+      </div>
+      <footer>
+        <code class="sid">${s.session_id.slice(0, 8)}…</code>
+        <button class="btn ghost xs" data-action="replay">Replay</button>
+        <button class="btn ghost xs" data-action="add-positive">+ pos</button>
+        <button class="btn ghost xs" data-action="add-negative">− neg</button>
+      </footer>
+    `;
+    card.addEventListener("click", () => {
+      if (layer === 0) {
+        selectSession(s.session_id);
+      } else {
+        advanceStack(layer);
+      }
+    });
+    card
+      .querySelectorAll("button[data-action]")
+      .forEach((btn) =>
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (btn.dataset.action === "replay") {
+            openReplay(s.session_id, s);
+          } else {
+            const side =
+              btn.dataset.action === "add-positive" ? "positive" : "negative";
+            addToMix(side, s.session_id);
+          }
+        }),
+      );
+    root.appendChild(card);
+  }
+
+  // Position counter at the very bottom (depth in time)
+  const counter = document.createElement("div");
+  counter.className = "stack-counter";
+  counter.textContent = `${state.stackFocus + 1} / ${state.stack.length}  ·  ↑/↓ to time-travel  ·  ⏎ to open`;
+  root.appendChild(counter);
+
+  if (state.stack[state.stackFocus]) {
+    // Lazy-prefetch the inspector for the focused card so it feels instant.
+    selectSession(state.stack[state.stackFocus].session_id, { silent: true });
+  }
+}
+
+function enterSearchMode() {
+  state.mode = "search";
+  document
+    .getElementById("results")
+    .querySelectorAll(".stack-card, .stack-counter")
+    .forEach((n) => n.remove());
+}
+
+function enterStackMode() {
+  state.mode = "stack";
+  document
+    .getElementById("results")
+    .querySelectorAll(".card")
+    .forEach((n) => n.remove());
+  renderStack();
+}
 
 async function pollUntilReady(attempt = 0) {
   // AppState is `.manage()`d eagerly now, but its slots (Qdrant + fastembed)
@@ -112,13 +280,11 @@ function attachEvents() {
 async function onSearchInput(e) {
   state.query = e.target.value.trim();
   if (!state.query) {
-    document.getElementById("results-empty").style.display = "";
-    document
-      .getElementById("results")
-      .querySelectorAll(".card")
-      .forEach((c) => c.remove());
+    // Returning to stack mode — drop any search cards, re-render the stack.
+    enterStackMode();
     return;
   }
+  enterSearchMode();
   await runLensSearch();
 }
 
@@ -234,17 +400,33 @@ function renderResults(hits) {
   }
 }
 
-async function selectSession(sessionId) {
+async function selectSession(sessionId, opts = {}) {
+  const silent = !!opts.silent;
   state.selected = sessionId;
-  for (const c of document.querySelectorAll(".card")) {
+  for (const c of document.querySelectorAll(".card, .stack-card")) {
     c.classList.toggle("selected", c.dataset.sessionId === sessionId);
   }
   const inspector = document.getElementById("inspector");
-  inspector.innerHTML = `<div class="empty">Loading ${sessionId.slice(0, 8)}…</div>`;
+  if (!silent) {
+    inspector.innerHTML = `<div class="empty">Loading ${sessionId.slice(0, 8)}…</div>`;
+  }
   try {
     const payload = await invoke("get_session", { sessionId });
+    if (!payload) {
+      // Session may not be indexed in Qdrant yet — fall back to the stack
+      // summary so the inspector still shows something.
+      const summary = state.stack.find((s) => s.session_id === sessionId);
+      if (summary) {
+        renderInspector(summary, sessionId);
+        return;
+      }
+    }
     renderInspector(payload, sessionId);
   } catch (err) {
+    // For silent (prefetch) failures, don't overwrite the inspector with an
+    // error — the lazy AppState might still be warming up. Just leave the
+    // previous content alone.
+    if (silent) return;
     inspector.innerHTML = `<div class="empty">Error: ${escapeHtml(String(err))}</div>`;
   }
 }
