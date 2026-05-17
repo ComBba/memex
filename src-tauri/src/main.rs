@@ -4,7 +4,10 @@
 use std::env;
 use std::process::ExitCode;
 
-const CLI_SUBCOMMANDS: &[&str] = &["scan", "search", "snapshot", "help", "--help", "-h"];
+const CLI_SUBCOMMANDS: &[&str] = &[
+    "scan", "search", "lens", "mix", "topology", "recall", "snapshot",
+    "help", "--help", "-h",
+];
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();

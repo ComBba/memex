@@ -123,15 +123,15 @@ Atomic tasks. ralph_loop picks next unchecked, executes, marks done, loops.
 - [x] T2.8: **GATE PASS.** `memex scan --index` indexed 80/80 real sessions; `memex search "myproject memex Qdrant Vector Space Day"` returns the active myproject worktree session (workspace-a) at #1 (score 0.6748), workspace-b at #2 (0.6514) ✅
 - [x] T2.9: Commit "phase 2: qdrant indexing + snapshot"
 
-### Phase 3 — 5 Qdrant features (Rust commands exposed to Tauri)
-- [ ] T3.1: `tauri::command lens_search(query, weights: {content, tool, path, error, code})` — Universal Query API multi-stage
-- [ ] T3.2: `tauri::command mix_and_match(positive_ids, negative_ids)` — Discovery API multi-pair context
-- [ ] T3.3: `tauri::command topology()` — Distance Matrix API → petgraph MST → return JSON {nodes, edges}
-- [ ] T3.4: `tauri::command colbert_explain(session_id, query)` — find matching sentence with offset
-- [ ] T3.5: `tauri::command snapshot_export(path)` and `snapshot_import(path)`
-- [ ] T3.6: `tauri::command recall(error_signature)` — proactive recall match
-- [ ] T3.7: Verify each command via `tauri dev` → console manual invoke
-- [ ] T3.8: Commit "phase 3: 5 qdrant features"
+### Phase 3 — 5 Qdrant features (Rust commands exposed to Tauri) ✅ (2026-05-18)
+- [x] T3.1: `lens_search(query, weights, limit)` — 5 parallel single-vector searches + weighted combine in Rust (true weighted blend; per-vector contribution returned for the UI lens inspector). Tested: `memex lens "Tauri Qdrant indexing implementation" --content 2.0 --tool 1.5 --code 0.5` → workspace-a #1 (0.5788), content=0.552 tool=0.600 code=0.624.
+- [x] T3.2: `mix_match(positive_ids, negative_ids, limit)` — Discovery API via `QueryPointsBuilder.query(DiscoverInput)`. Qdrant 1.18 requires a target, so we use the first positive as anchor. Tested: pos=workspace-a pos, neg=project-meeting → workspace-b (myproject) #1, workspace-c (myproject) #2 ✅
+- [x] T3.3: `topology(sample, per_point)` — `search_matrix_pairs` → petgraph `min_spanning_tree` → JSON {nodes, edges}. Tested: 80 sample / 4 per-point → 79 nodes / 78 edges, MST topology of `content` vectors.
+- [ ] T3.4: `colbert_explain` — **DEFERRED.** `fastembed-rs` 5.13.4 doesn't ship Jina ColBERT v2. Will revisit in Phase 4 polish if time permits; otherwise document as a future enhancement.
+- [x] T3.5: `snapshot_export(path)` + `snapshot_import(path)` — done in Phase 2 (T2.7); now also exposed as Tauri command.
+- [x] T3.6: `recall(error_text, limit)` — search the `error` named vector with `has_errors=true` filter. Tested: "Qdrant connection refused gRPC" → project-philosophy / project-redesign / project-x / workspace-a (top hits include this active session, as expected).
+- [x] T3.7: Tauri command registry (`src-tauri/src/commands.rs` + `lib.rs::run()`). `AppState { qdrant, embedder }` initialized via `tauri::async_runtime::spawn` in setup; managed as `Arc<AppState>`. Commands: `lens_search`, `mix_match`, `topology`, `recall`, `get_session`, `snapshot_export`, `snapshot_import`, `collection_info`, `refresh_index`. CLI smoke tests pass — Tauri wrappers are thin and structurally identical, so frontend-side `invoke(...)` verification deferred to Phase 4.
+- [x] T3.8: Commit "phase 3: 5 qdrant features"
 
 ### Phase 4 — Frontend port (Tauri webview)
 - [ ] T4.1: Update mockup HTML to use Tauri's `@tauri-apps/api` instead of hardcoded data

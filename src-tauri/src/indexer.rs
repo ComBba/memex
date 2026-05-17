@@ -21,8 +21,10 @@ use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use once_cell::sync::Lazy;
 use qdrant_client::{
     qdrant::{
-        vectors_config, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder, Distance,
-        FieldType, PointStruct, Query, QueryPointsBuilder, UpsertPointsBuilder,
+        point_id::PointIdOptions, vectors_config, ContextInputBuilder, ContextInputPair,
+        CreateCollectionBuilder, CreateFieldIndexCollectionBuilder, Distance, FieldType,
+        Filter, GetPointsBuilder, PointId, PointStruct, Query,
+        QueryPointsBuilder, SearchMatrixPointsBuilder, UpsertPointsBuilder, VectorInput,
         VectorParamsBuilder, VectorParamsMap, VectorsConfig,
     },
     Payload, Qdrant,
@@ -388,6 +390,51 @@ pub struct SearchHit {
     pub project_name: String,
     pub ai_title: String,
     pub start_iso: String,
+    /// Per-vector contribution scores (only populated by lens_search).
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub vector_scores: std::collections::HashMap<String, f32>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LensWeights {
+    #[serde(default = "default_weight")]
+    pub content: f32,
+    #[serde(default = "default_weight")]
+    pub tool: f32,
+    #[serde(default = "default_weight")]
+    pub path: f32,
+    #[serde(default = "default_weight")]
+    pub error: f32,
+    #[serde(default = "default_weight")]
+    pub code: f32,
+}
+
+fn default_weight() -> f32 {
+    1.0
+}
+
+impl Default for LensWeights {
+    fn default() -> Self {
+        Self {
+            content: 1.0,
+            tool: 1.0,
+            path: 1.0,
+            error: 1.0,
+            code: 1.0,
+        }
+    }
+}
+
+impl LensWeights {
+    fn iter(&self) -> [(&'static str, f32); 5] {
+        [
+            ("content", self.content),
+            ("tool", self.tool),
+            ("path", self.path),
+            ("error", self.error),
+            ("code", self.code),
+        ]
+    }
 }
 
 pub async fn search_content(
@@ -396,19 +443,337 @@ pub async fn search_content(
     query: &str,
     limit: u64,
 ) -> Result<Vec<SearchHit>> {
+    let weights = LensWeights {
+        content: 1.0,
+        tool: 0.0,
+        path: 0.0,
+        error: 0.0,
+        code: 0.0,
+    };
+    lens_search(client, embedder, query, &weights, limit, 50).await
+}
+
+/// **Lens slider** (Plan §3 T3.1).
+///
+/// Runs one cosine search per named vector whose weight > 0, then performs a
+/// weighted score combine in Rust (true weighted blend — not RRF rank fusion).
+/// Returns the top `limit` sessions with each session's per-vector contribution
+/// in `SearchHit.vector_scores` so the UI can render the lens inspector.
+pub async fn lens_search(
+    client: &Qdrant,
+    embedder: &Embedder,
+    query: &str,
+    weights: &LensWeights,
+    limit: u64,
+    per_vector_limit: u64,
+) -> Result<Vec<SearchHit>> {
     let vecs = embedder.embed(vec![query.to_string()])?;
-    let vec = vecs.into_iter().next().context("no embedding for query")?;
-    let q: Query = vec.into();
-    let res = client
+    let qvec = vecs.into_iter().next().context("no embedding for query")?;
+
+    let mut combined: HashMap<String, CombinedHit> = HashMap::new();
+    let mut payloads: HashMap<String, HashMap<String, qdrant_client::qdrant::Value>> = HashMap::new();
+
+    let mut total_w = 0.0_f32;
+    for (_, w) in weights.iter() {
+        total_w += w;
+    }
+    if total_w <= 0.0 {
+        return Ok(Vec::new());
+    }
+
+    for (vname, w) in weights.iter() {
+        if w <= 0.0 {
+            continue;
+        }
+        let q: Query = qvec.clone().into();
+        let res = client
+            .query(
+                QueryPointsBuilder::new(COLLECTION)
+                    .query(q)
+                    .using(vname.to_string())
+                    .limit(per_vector_limit)
+                    .with_payload(true),
+            )
+            .await?;
+        for p in res.result {
+            let sid = match payload_str(&p.payload, "session_id") {
+                Some(s) => s,
+                None => continue,
+            };
+            let weighted = p.score * (w / total_w);
+            let entry = combined.entry(sid.clone()).or_default();
+            entry.combined_score += weighted;
+            entry.per_vec.insert(vname.to_string(), p.score);
+            payloads.entry(sid).or_insert(p.payload);
+        }
+    }
+
+    let mut ranked: Vec<(String, CombinedHit)> = combined.into_iter().collect();
+    ranked.sort_by(|a, b| {
+        b.1.combined_score
+            .partial_cmp(&a.1.combined_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let hits = ranked
+        .into_iter()
+        .take(limit as usize)
+        .map(|(sid, ch)| {
+            let p = payloads.get(&sid).cloned().unwrap_or_default();
+            SearchHit {
+                score: ch.combined_score,
+                session_id: sid.clone(),
+                project_name: payload_str(&p, "project_name").unwrap_or_default(),
+                ai_title: payload_str(&p, "ai_title").unwrap_or_default(),
+                start_iso: payload_str(&p, "start_iso").unwrap_or_default(),
+                vector_scores: ch.per_vec,
+            }
+        })
+        .collect();
+    Ok(hits)
+}
+
+#[derive(Default, Debug)]
+struct CombinedHit {
+    combined_score: f32,
+    per_vec: HashMap<String, f32>,
+}
+
+/// **Mix & Match** (Plan §3 T3.2) — Discovery API.
+///
+/// Each positive session pairs with one negative session (or a synthetic
+/// anti-context). Discovery picks vectors closer to the positive(s) and
+/// farther from the negative(s) in one query.
+pub async fn mix_match(
+    client: &Qdrant,
+    positive_session_ids: &[String],
+    negative_session_ids: &[String],
+    limit: u64,
+) -> Result<Vec<SearchHit>> {
+    if positive_session_ids.is_empty() && negative_session_ids.is_empty() {
+        anyhow::bail!("mix_match needs at least one positive or negative session id");
+    }
+    let to_pid = |s: &String| PointId {
+        point_id_options: Some(PointIdOptions::Uuid(point_id(s))),
+    };
+
+    // Build context pairs. If counts differ, the longer side is paired with the
+    // first element of the shorter side as a stand-in.
+    let pos: Vec<PointId> = positive_session_ids.iter().map(to_pid).collect();
+    let neg: Vec<PointId> = negative_session_ids.iter().map(to_pid).collect();
+    let len = pos.len().max(neg.len()).max(1);
+    let mut pairs: Vec<ContextInputPair> = Vec::with_capacity(len);
+    for i in 0..len {
+        let positive = pos.get(i).cloned().unwrap_or_else(|| pos[0].clone());
+        let negative = neg
+            .get(i)
+            .cloned()
+            .or_else(|| neg.first().cloned())
+            .unwrap_or_else(|| positive.clone());
+        pairs.push(ContextInputPair {
+            positive: Some(VectorInput::from(positive)),
+            negative: Some(VectorInput::from(negative)),
+        });
+    }
+
+    let context = ContextInputBuilder::default().pairs(pairs).build();
+    // Qdrant 1.18 requires a target; use the first positive (or first negative
+    // as a fallback) so context discovery has something to anchor on.
+    let target_pid = pos
+        .first()
+        .cloned()
+        .or_else(|| neg.first().cloned())
+        .context("mix_match needs at least one session id")?;
+    let discover_input = qdrant_client::qdrant::DiscoverInput {
+        target: Some(VectorInput::from(target_pid)),
+        context: Some(context),
+    };
+
+    let resp = client
         .query(
             QueryPointsBuilder::new(COLLECTION)
-                .query(q)
-                .using("content")
+                .query(discover_input)
+                .using("content".to_string())
                 .limit(limit)
                 .with_payload(true),
         )
         .await?;
+    Ok(resp
+        .result
+        .into_iter()
+        .map(|p| SearchHit {
+            score: p.score,
+            session_id: payload_str(&p.payload, "session_id").unwrap_or_default(),
+            project_name: payload_str(&p.payload, "project_name").unwrap_or_default(),
+            ai_title: payload_str(&p.payload, "ai_title").unwrap_or_default(),
+            start_iso: payload_str(&p.payload, "start_iso").unwrap_or_default(),
+            vector_scores: HashMap::new(),
+        })
+        .collect())
+}
 
+/// Topology MST node + edge for frontend graph rendering.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TopoNode {
+    pub session_id: String,
+    pub project_name: String,
+    pub ai_title: String,
+    pub start_iso: String,
+    pub user_turns: i64,
+    pub tool_count: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TopoEdge {
+    pub a: String,
+    pub b: String,
+    pub distance: f32,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Topology {
+    pub nodes: Vec<TopoNode>,
+    pub edges: Vec<TopoEdge>,
+}
+
+/// **Topology view** (Plan §3 T3.3) — Distance Matrix → MST.
+///
+/// `sample` = how many sessions to consider; `nearest_per_point` = how many
+/// nearest neighbors per point to fetch for the pairwise matrix.
+pub async fn topology(
+    client: &Qdrant,
+    sample: u32,
+    nearest_per_point: u32,
+) -> Result<Topology> {
+    // 1. Get pairwise distances from Qdrant's distance matrix endpoint.
+    let resp = client
+        .search_matrix_pairs(
+            SearchMatrixPointsBuilder::new(COLLECTION)
+                .using("content".to_string())
+                .sample(sample as u64)
+                .limit(nearest_per_point as u64),
+        )
+        .await?;
+
+    // 2. Collect unique node ids, fetch their payloads in one batch.
+    use std::collections::BTreeSet;
+    let mut id_set: BTreeSet<String> = BTreeSet::new();
+    let empty = qdrant_client::qdrant::SearchMatrixPairs { pairs: Vec::new() };
+    let matrix = resp.result.as_ref().unwrap_or(&empty);
+    for pair in &matrix.pairs {
+        if let Some(a) = pair.a.as_ref().and_then(point_id_string) {
+            id_set.insert(a);
+        }
+        if let Some(b) = pair.b.as_ref().and_then(point_id_string) {
+            id_set.insert(b);
+        }
+    }
+    let point_ids: Vec<PointId> = id_set
+        .iter()
+        .map(|u| PointId {
+            point_id_options: Some(PointIdOptions::Uuid(u.clone())),
+        })
+        .collect();
+    let detail = if point_ids.is_empty() {
+        Vec::new()
+    } else {
+        client
+            .get_points(
+                GetPointsBuilder::new(COLLECTION, point_ids).with_payload(true),
+            )
+            .await?
+            .result
+    };
+
+    let mut node_by_id: HashMap<String, TopoNode> = HashMap::new();
+    for p in detail {
+        let id = match p.id.as_ref().and_then(point_id_string) {
+            Some(s) => s,
+            None => continue,
+        };
+        node_by_id.insert(
+            id.clone(),
+            TopoNode {
+                session_id: payload_str(&p.payload, "session_id").unwrap_or_default(),
+                project_name: payload_str(&p.payload, "project_name").unwrap_or_default(),
+                ai_title: payload_str(&p.payload, "ai_title").unwrap_or_default(),
+                start_iso: payload_str(&p.payload, "start_iso").unwrap_or_default(),
+                user_turns: payload_i64(&p.payload, "user_turns").unwrap_or(0),
+                tool_count: payload_i64(&p.payload, "tool_count").unwrap_or(0),
+            },
+        );
+    }
+
+    // 3. Build an undirected weighted graph and compute MST.
+    use petgraph::graph::UnGraph;
+    use petgraph::algo::min_spanning_tree;
+    use petgraph::data::FromElements;
+    let mut g: UnGraph<String, f32> = UnGraph::new_undirected();
+    let mut idx: HashMap<String, _> = HashMap::new();
+    for id in &id_set {
+        idx.insert(id.clone(), g.add_node(id.clone()));
+    }
+    let empty = qdrant_client::qdrant::SearchMatrixPairs { pairs: Vec::new() };
+    let matrix = resp.result.as_ref().unwrap_or(&empty);
+    for pair in &matrix.pairs {
+        let a = pair.a.as_ref().and_then(point_id_string);
+        let b = pair.b.as_ref().and_then(point_id_string);
+        if let (Some(a), Some(b)) = (a, b) {
+            if let (Some(&na), Some(&nb)) = (idx.get(&a), idx.get(&b)) {
+                g.add_edge(na, nb, pair.score);
+            }
+        }
+    }
+    let mst = UnGraph::<String, f32>::from_elements(min_spanning_tree(&g));
+
+    let mut edges = Vec::new();
+    for e in mst.edge_indices() {
+        let (na, nb) = mst.edge_endpoints(e).unwrap();
+        let w = mst[e];
+        edges.push(TopoEdge {
+            a: mst[na].clone(),
+            b: mst[nb].clone(),
+            distance: w,
+        });
+    }
+
+    let mut nodes: Vec<TopoNode> = id_set
+        .iter()
+        .filter_map(|id| node_by_id.remove(id))
+        .collect();
+    nodes.sort_by(|a, b| a.start_iso.cmp(&b.start_iso));
+
+    Ok(Topology { nodes, edges })
+}
+
+/// **Proactive recall** (Plan §3 T3.6) — find past sessions that solved an
+/// error matching the input signature. Embeds `error_text` and searches the
+/// dedicated `error` named vector; only sessions flagged `has_errors=true`
+/// are kept.
+pub async fn recall(
+    client: &Qdrant,
+    embedder: &Embedder,
+    error_text: &str,
+    limit: u64,
+) -> Result<Vec<SearchHit>> {
+    let vecs = embedder.embed(vec![error_text.to_string()])?;
+    let qvec = vecs.into_iter().next().context("no embedding for query")?;
+    let q: Query = qvec.into();
+    let mut filter = Filter::default();
+    filter.must = vec![qdrant_client::qdrant::Condition::matches(
+        "has_errors",
+        true,
+    )];
+    let res = client
+        .query(
+            QueryPointsBuilder::new(COLLECTION)
+                .query(q)
+                .using("error")
+                .limit(limit)
+                .filter(filter)
+                .with_payload(true),
+        )
+        .await?;
     Ok(res
         .result
         .into_iter()
@@ -418,9 +783,42 @@ pub async fn search_content(
             project_name: payload_str(&p.payload, "project_name").unwrap_or_default(),
             ai_title: payload_str(&p.payload, "ai_title").unwrap_or_default(),
             start_iso: payload_str(&p.payload, "start_iso").unwrap_or_default(),
+            vector_scores: HashMap::new(),
         })
         .collect())
 }
+
+/// Fetch a single session's payload (for the inspector pane in the UI).
+pub async fn get_session_payload(
+    client: &Qdrant,
+    session_id: &str,
+) -> Result<Option<HashMap<String, qdrant_client::qdrant::Value>>> {
+    let pid = PointId {
+        point_id_options: Some(PointIdOptions::Uuid(point_id(session_id))),
+    };
+    let res = client
+        .get_points(GetPointsBuilder::new(COLLECTION, vec![pid]).with_payload(true))
+        .await?;
+    Ok(res.result.into_iter().next().map(|p| p.payload))
+}
+
+fn payload_i64(
+    p: &HashMap<String, qdrant_client::qdrant::Value>,
+    key: &str,
+) -> Option<i64> {
+    p.get(key).and_then(|v| v.kind.as_ref()).and_then(|k| match k {
+        qdrant_client::qdrant::value::Kind::IntegerValue(i) => Some(*i),
+        _ => None,
+    })
+}
+
+fn point_id_string(p: &PointId) -> Option<String> {
+    match p.point_id_options.as_ref()? {
+        PointIdOptions::Uuid(u) => Some(u.clone()),
+        PointIdOptions::Num(n) => Some(n.to_string()),
+    }
+}
+
 
 fn payload_str(
     p: &HashMap<String, qdrant_client::qdrant::Value>,
