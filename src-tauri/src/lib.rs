@@ -18,19 +18,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // Initialize Qdrant client + embedder once, share via State.
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                match init_app_state().await {
-                    Ok(state) => {
-                        handle.manage::<AppStateArc>(Arc::new(state));
-                        eprintln!("[memex] AppState ready (qdrant + embedder)");
-                    }
-                    Err(e) => {
-                        eprintln!("[memex] AppState init FAILED: {e:#}");
-                    }
-                }
-            });
+            // AppState is managed eagerly with EMPTY lazy slots. Qdrant and
+            // fastembed init lazily on the first command that needs them, so
+            // the window can open instantly and the app self-heals if the
+            // user starts Qdrant after launching Memex.
+            app.manage::<AppStateArc>(Arc::new(AppState::new()));
+            eprintln!("[memex] AppState registered (qdrant + embedder will init on first use)");
 
             // Tray icon — minimal Open / Snapshot / Quit menu.
             let open_item = MenuItem::with_id(app, "open", "Open Memex", true, None::<&str>)?;
@@ -82,11 +75,4 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-async fn init_app_state() -> anyhow::Result<AppState> {
-    let qdrant = indexer::connect().await?;
-    indexer::ensure_collection(&qdrant).await?;
-    let embedder = indexer::Embedder::new()?;
-    Ok(AppState { qdrant, embedder })
 }

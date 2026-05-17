@@ -9,18 +9,75 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+use anyhow::Context;
 use once_cell::sync::Lazy;
 use qdrant_client::Qdrant;
 use tauri::State;
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::indexer::{
     self, Embedder, LensWeights, SearchHit, Topology, COLLECTION,
 };
 use crate::parser;
 
+/// AppState holds the heavyweight resources (Qdrant client + fastembed model)
+/// behind lazy slots. `.manage()` is called eagerly in `lib.rs::run()` so the
+/// state container is always present; the actual init happens on first command
+/// invocation. If init fails (e.g. Qdrant is down at launch), the slot stays
+/// empty and the *next* call retries — so the app self-heals as soon as the
+/// user starts Qdrant in another terminal.
 pub struct AppState {
-    pub qdrant: Qdrant,
-    pub embedder: Embedder,
+    qdrant: AsyncMutex<Option<Arc<Qdrant>>>,
+    embedder: AsyncMutex<Option<Arc<Embedder>>>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self {
+            qdrant: AsyncMutex::new(None),
+            embedder: AsyncMutex::new(None),
+        }
+    }
+
+    pub async fn qdrant(&self) -> anyhow::Result<Arc<Qdrant>> {
+        let mut guard = self.qdrant.lock().await;
+        if let Some(c) = guard.as_ref() {
+            return Ok(c.clone());
+        }
+        let client = Arc::new(
+            indexer::connect()
+                .await
+                .context("could not connect to Qdrant — is it running on localhost:6334?")?,
+        );
+        indexer::ensure_collection(&client)
+            .await
+            .context("connected to Qdrant but failed to ensure the collection schema")?;
+        *guard = Some(client.clone());
+        Ok(client)
+    }
+
+    pub async fn embedder(&self) -> anyhow::Result<Arc<Embedder>> {
+        let mut guard = self.embedder.lock().await;
+        if let Some(e) = guard.as_ref() {
+            return Ok(e.clone());
+        }
+        // Embedder::new is synchronous (ONNX model load); run on the blocking
+        // pool so we don't park the tokio worker for the ~130 MB first-time
+        // download.
+        let embedder = tokio::task::spawn_blocking(Embedder::new)
+            .await
+            .context("embedder init task panicked")?
+            .context("failed to load BGE-small-en-v1.5 — check ~/.fastembed_cache/")?;
+        let arc = Arc::new(embedder);
+        *guard = Some(arc.clone());
+        Ok(arc)
+    }
 }
 
 pub type AppStateArc = Arc<AppState>;
@@ -38,7 +95,9 @@ pub async fn lens_search(
 ) -> Result<Vec<SearchHit>, String> {
     let weights = weights.unwrap_or_default();
     let limit = limit.unwrap_or(20);
-    indexer::lens_search(&state.qdrant, &state.embedder, &query, &weights, limit, 60)
+    let qdrant = state.qdrant().await.map_err(stringify)?;
+    let embedder = state.embedder().await.map_err(stringify)?;
+    indexer::lens_search(&qdrant, &embedder, &query, &weights, limit, 60)
         .await
         .map_err(stringify)
 }
@@ -50,7 +109,8 @@ pub async fn mix_match(
     negative: Vec<String>,
     limit: Option<u64>,
 ) -> Result<Vec<SearchHit>, String> {
-    indexer::mix_match(&state.qdrant, &positive, &negative, limit.unwrap_or(20))
+    let qdrant = state.qdrant().await.map_err(stringify)?;
+    indexer::mix_match(&qdrant, &positive, &negative, limit.unwrap_or(20))
         .await
         .map_err(stringify)
 }
@@ -61,13 +121,10 @@ pub async fn topology(
     sample: Option<u32>,
     per_point: Option<u32>,
 ) -> Result<Topology, String> {
-    indexer::topology(
-        &state.qdrant,
-        sample.unwrap_or(80),
-        per_point.unwrap_or(5),
-    )
-    .await
-    .map_err(stringify)
+    let qdrant = state.qdrant().await.map_err(stringify)?;
+    indexer::topology(&qdrant, sample.unwrap_or(80), per_point.unwrap_or(5))
+        .await
+        .map_err(stringify)
 }
 
 #[tauri::command]
@@ -76,14 +133,11 @@ pub async fn recall(
     error_text: String,
     limit: Option<u64>,
 ) -> Result<Vec<SearchHit>, String> {
-    indexer::recall(
-        &state.qdrant,
-        &state.embedder,
-        &error_text,
-        limit.unwrap_or(5),
-    )
-    .await
-    .map_err(stringify)
+    let qdrant = state.qdrant().await.map_err(stringify)?;
+    let embedder = state.embedder().await.map_err(stringify)?;
+    indexer::recall(&qdrant, &embedder, &error_text, limit.unwrap_or(5))
+        .await
+        .map_err(stringify)
 }
 
 #[tauri::command]
@@ -91,7 +145,8 @@ pub async fn get_session(
     state: State<'_, AppStateArc>,
     session_id: String,
 ) -> Result<Option<serde_json::Value>, String> {
-    let payload = indexer::get_session_payload(&state.qdrant, &session_id)
+    let qdrant = state.qdrant().await.map_err(stringify)?;
+    let payload = indexer::get_session_payload(&qdrant, &session_id)
         .await
         .map_err(stringify)?;
     match payload {
@@ -113,7 +168,8 @@ pub async fn get_session_turns(
 ) -> Result<serde_json::Value, String> {
     // Pull the payload to find the original source jsonl path, then re-parse
     // it so the replay can stream turn-by-turn without bloating Qdrant payloads.
-    let payload = indexer::get_session_payload(&state.qdrant, &session_id)
+    let qdrant = state.qdrant().await.map_err(stringify)?;
+    let payload = indexer::get_session_payload(&qdrant, &session_id)
         .await
         .map_err(stringify)?;
     let Some(payload) = payload else {
@@ -171,8 +227,8 @@ pub async fn snapshot_import(path: PathBuf) -> Result<(), String> {
 pub async fn collection_info(
     state: State<'_, AppStateArc>,
 ) -> Result<serde_json::Value, String> {
-    let info = state
-        .qdrant
+    let qdrant = state.qdrant().await.map_err(stringify)?;
+    let info = qdrant
         .collection_info(COLLECTION)
         .await
         .map_err(stringify)?;
@@ -196,10 +252,10 @@ pub async fn refresh_index(
     let root = path.unwrap_or_else(default_projects_root);
     let sessions = parser::scan_dir(&root).map_err(stringify)?;
     let total = sessions.len();
-    indexer::ensure_collection(&state.qdrant)
-        .await
-        .map_err(stringify)?;
-    let report = indexer::bulk_index(&state.qdrant, &state.embedder, &sessions)
+    let qdrant = state.qdrant().await.map_err(stringify)?;
+    let embedder = state.embedder().await.map_err(stringify)?;
+    indexer::ensure_collection(&qdrant).await.map_err(stringify)?;
+    let report = indexer::bulk_index(&qdrant, &embedder, &sessions)
         .await
         .map_err(stringify)?;
     Ok(serde_json::json!({

@@ -46,7 +46,12 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 async function pollUntilReady(attempt = 0) {
-  // AppState is initialized async in Tauri setup. Poll until ready.
+  // AppState is `.manage()`d eagerly now, but its slots (Qdrant + fastembed)
+  // init lazily on the first command call. First-time launch may need ~10 s
+  // to download the BGE-small ONNX model (~130 MB), so we poll patiently and
+  // separate the "still warming up" UI from the "real problem" UI.
+  const MAX_ATTEMPTS = 240; // 240 × 500 ms = 120 s, comfortable for cold start
+  const RETRY_MS = 500;
   try {
     const info = await invoke("collection_info");
     state.collectionPoints = info.points_count;
@@ -56,12 +61,25 @@ async function pollUntilReady(attempt = 0) {
     document.getElementById("collection-info").textContent =
       `· ${info.points_count} sessions`;
   } catch (err) {
-    if (attempt < 60) {
-      setStatus(`Waiting for index… (${attempt}s)`);
-      setTimeout(() => pollUntilReady(attempt + 1), 500);
+    const msg = String(err);
+    // Distinguish: still cold-starting vs. true failure (Qdrant down / model
+    // load borked). Keep retrying in both cases but show an actionable hint
+    // once we've waited a while.
+    if (attempt < MAX_ATTEMPTS) {
+      const sec = Math.round((attempt * RETRY_MS) / 1000);
+      let hint = `Bootstrapping… (${sec}s)`;
+      if (msg.includes("could not connect to Qdrant") || msg.includes("connection")) {
+        hint = `Qdrant not reachable on :6334 — start it with \`./.qdrant/qdrant\` then this banner will clear automatically.`;
+      } else if (msg.includes("fastembed") || msg.includes("BGE")) {
+        hint = `Loading BGE-small embedder (first launch may take ~30s for model download)…`;
+      } else if (msg.includes("state not managed")) {
+        hint = `Warming up… (${sec}s)`;
+      }
+      setStatus(hint);
+      setTimeout(() => pollUntilReady(attempt + 1), RETRY_MS);
       return;
     }
-    setStatus(`Could not reach Qdrant: ${err}`);
+    setStatus(`Memex couldn't bootstrap after 2 minutes — last error: ${msg}`);
   }
 }
 
