@@ -184,10 +184,16 @@ function renderStack() {
     root.appendChild(card);
   }
 
-  // Position counter at the very bottom (depth in time)
+  // Bottom HUD — chip-shaped, glassy, readable. Position + nav hints.
   const counter = document.createElement("div");
   counter.className = "stack-counter";
-  counter.textContent = `${state.stackFocus + 1} / ${state.stack.length}  ·  ↑/↓ to time-travel  ·  ⏎ to open`;
+  counter.innerHTML = `
+    <span class="pos">${state.stackFocus + 1}<span class="total"> / ${state.stack.length}</span></span>
+    <span class="sep"></span>
+    <span class="hint"><span class="kbd">↑</span><span class="kbd">↓</span> time-travel</span>
+    <span class="sep"></span>
+    <span class="hint"><span class="kbd">⏎</span> open</span>
+  `;
   root.appendChild(counter);
 
   if (state.stack[state.stackFocus]) {

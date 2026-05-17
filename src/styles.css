@@ -530,29 +530,56 @@ textarea:focus {
 
 /* --- Time Machine stack ------------------------------------------------- */
 
+/* Real perspective on the results pane. 1200px focal length, viewer slightly
+   above center → cards "tilt back" naturally as they recede. */
 .results {
   position: relative;
-  perspective: 1400px;
-  perspective-origin: 50% 18%;
+  perspective: 1200px;
+  perspective-origin: 50% 28%;
+  overflow: hidden;
+  padding: 0;
+  /* center children vertically via abs-positioning, see .stack-card.top */
+}
+
+/* Subtle radial vignette to make the receding cards "fade into" the scene
+   instead of hitting a hard edge. */
+.results::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 35%,
+    transparent 0%,
+    transparent 45%,
+    rgba(0, 0, 0, 0.35) 100%
+  );
+  z-index: 70;
 }
 
 .stack-card {
   position: absolute;
-  left: 14px;
-  right: 14px;
-  top: 50%;
+  /* card sits inset from the edges so depth is visible left+right too */
+  left: 8%;
+  right: 8%;
+  top: 42%;
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px 18px;
+  border-radius: 14px;
+  padding: 18px 22px;
   cursor: pointer;
-  transform-origin: 50% 0%;
-  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 0.32s ease,
+  transform-style: preserve-3d;
+  transform-origin: 50% 50%;
+  transition: transform 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.42s ease,
+    box-shadow 0.32s ease,
     background 0.18s ease,
-    border-color 0.18s ease;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+    border-color 0.18s ease,
+    filter 0.32s ease;
   will-change: transform, opacity;
+  backface-visibility: hidden;
+  /* baseline shadow; layers override for depth-appropriate falloff */
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
 }
 
 .stack-card:hover {
@@ -562,50 +589,65 @@ textarea:focus {
 
 .stack-card.selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft), 0 18px 60px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 2px var(--accent-soft),
+    0 22px 70px rgba(10, 132, 255, 0.18);
 }
 
-/* Layer geometry — focused card front-center, older cards recede into the
-   scene (Time Machine style). The data-layer attribute is set by JS based
-   on (index - stackFocus). */
+/* Layer geometry — focused card front-center; older cards recede *into* the
+   scene via translateZ (real 3D depth, not just scale). Each ~110 px deeper.
+   Combined with the slight upward translateY shift, you see the *tops* of
+   older cards peeking out above the focused one, like a deck of cards
+   leaning back. */
 .stack-card[data-layer="0"] {
-  transform: translate(0, -56%) scale(1);
+  transform: translate3d(0, 0, 0) rotateX(0deg);
   opacity: 1;
   z-index: 50;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 .stack-card[data-layer="1"] {
-  transform: translate(0, -66%) scale(0.96);
-  opacity: 0.82;
+  transform: translate3d(0, -48px, -110px) rotateX(2deg);
+  opacity: 0.88;
   z-index: 49;
+  filter: blur(0.2px);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
 }
 .stack-card[data-layer="2"] {
-  transform: translate(0, -74%) scale(0.93);
-  opacity: 0.66;
+  transform: translate3d(0, -88px, -230px) rotateX(3.5deg);
+  opacity: 0.68;
   z-index: 48;
+  filter: blur(0.6px);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.38);
 }
 .stack-card[data-layer="3"] {
-  transform: translate(0, -80%) scale(0.90);
-  opacity: 0.50;
+  transform: translate3d(0, -122px, -360px) rotateX(5deg);
+  opacity: 0.48;
   z-index: 47;
+  filter: blur(1px);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32);
 }
 .stack-card[data-layer="4"] {
-  transform: translate(0, -85%) scale(0.87);
-  opacity: 0.36;
+  transform: translate3d(0, -150px, -500px) rotateX(6deg);
+  opacity: 0.30;
   z-index: 46;
+  filter: blur(1.6px);
 }
 .stack-card[data-layer="5"] {
-  transform: translate(0, -89%) scale(0.84);
-  opacity: 0.22;
+  transform: translate3d(0, -174px, -660px) rotateX(7deg);
+  opacity: 0.16;
   z-index: 45;
+  filter: blur(2.2px);
 }
 .stack-card[data-layer="6"] {
-  transform: translate(0, -92%) scale(0.82);
-  opacity: 0.12;
+  transform: translate3d(0, -192px, -840px) rotateX(8deg);
+  opacity: 0.07;
   z-index: 44;
+  filter: blur(2.8px);
 }
-/* Card we've passed (newer than focus) — flies away upward, out of view. */
+/* Card we've passed (newer than focus) — slides forward + tips toward
+   the viewer, then fades. The translateZ positive value pulls it past
+   the focal plane so it visually leaves through the screen. */
 .stack-card[data-layer="-1"] {
-  transform: translate(0, -120%) scale(1.04);
+  transform: translate3d(0, 140px, 220px) rotateX(-6deg);
   opacity: 0;
   z-index: 60;
   pointer-events: none;
@@ -615,9 +657,9 @@ textarea:focus {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 11.5px;
 }
 .stack-card .proj {
   color: var(--text-primary);
@@ -629,8 +671,8 @@ textarea:focus {
   flex: 1;
 }
 .stack-card .title {
-  margin: 4px 0 10px 0;
-  font-size: 15px;
+  margin: 4px 0 12px 0;
+  font-size: 16px;
   font-weight: 500;
   line-height: 1.35;
   color: var(--text-primary);
@@ -641,7 +683,7 @@ textarea:focus {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-secondary);
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .stack-card .branch {
   color: var(--text-muted);
@@ -657,17 +699,70 @@ textarea:focus {
   border-color: rgba(255, 69, 58, 0.45);
 }
 
+/* Bottom HUD — chip-shaped, glass background, readable. Replaces the old
+   one-line muted line that was illegible against the dark canvas. */
 .stack-counter {
   position: absolute;
-  bottom: 14px;
-  left: 0;
-  right: 0;
-  text-align: center;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--text-muted);
-  letter-spacing: 0.4px;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 18px;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--text-primary);
+  background: rgba(28, 28, 30, 0.78);
+  border: 1px solid var(--border-strong);
+  border-radius: 24px;
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
   pointer-events: none;
+  z-index: 80;
+  white-space: nowrap;
+}
+
+.stack-counter .pos {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stack-counter .pos .total {
+  color: var(--text-muted);
+}
+
+.stack-counter .sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border-strong);
+}
+
+.stack-counter .hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-glass-hi);
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
 }
 
 /* --- Replay ------------------------------------------------------------- */
