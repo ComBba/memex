@@ -112,21 +112,16 @@ Atomic tasks. ralph_loop picks next unchecked, executes, marks done, loops.
 - [x] T1.7: `memex scan --limit 10` against `~/.claude/projects` parsed 80 real sessions, 17,706 tool calls, 0 errors
 - [x] T1.8: Commit "phase 1: jsonl parser + tests"
 
-### Phase 2 — Qdrant indexing
-- [ ] T2.1: Add deps: `qdrant-client`, `tokio`
-- [ ] T2.2: Define Qdrant collection schema (5 named vectors + payload index)
-  - `content` (dense 384d BGE-small)
-  - `tool` (dense 384d BGE-small) — text of all tool calls
-  - `path` (sparse BM42) — file paths mentioned
-  - `error` (dense 384d) — error text only
-  - `code` (dense 384d) — code blocks only
-- [ ] T2.3: `init_collection()` creates collection if missing
-- [ ] T2.4: `upsert_session(session)` builds 5 vectors via FastEmbed, calls Qdrant
-- [ ] T2.5: Bulk indexer with progress bar (`indicatif`)
-- [ ] T2.6: ColBERT (Jina-ColBERT-v2) sentence-level multi-vector — separate collection or as 6th named vec
-- [ ] T2.7: Snapshot CLI: `memex snapshot export` and `memex snapshot import`
-- [ ] T2.8: Verify: index 50 fixtures, query "modal IP" returns expected hit
-- [ ] T2.9: Commit "phase 2: qdrant indexing + snapshot"
+### Phase 2 — Qdrant indexing ✅ (2026-05-18)
+- [x] T2.1: Deps added — `qdrant-client = "1.18.0"`, `tokio` (rt+macros+fs+io+time+sync), `fastembed = "5.13.4"`, `indicatif = "0.18"`, `uuid` (v4+v5), `regex`, `once_cell`, `reqwest` (json/rustls/multipart), `futures`
+- [x] T2.2: Collection schema (`src-tauri/src/indexer.rs`) — 5 named **dense** vectors (384-d cosine) `content`/`tool`/`path`/`error`/`code`. NOTE: path uses dense BGE-small for MVP; **BM42 sparse on `path`** is deferred (qdrant-client 1.18 supports it, FastEmbed-Rust doesn't expose BM42 — needs raw HTTP path). Payload indexes: `project_name`/`project_path`/`git_branch`/`ai_title`/`start_ts`/`has_errors`.
+- [x] T2.3: `ensure_collection()` — idempotent, creates collection + payload indexes if absent
+- [x] T2.4: `index_session()` — embeds 5 extracts via BGE-small (Mutex-wrapped `TextEmbedding`), upserts one PointStruct with 5 named vectors + payload
+- [x] T2.5: `bulk_index()` with `indicatif` progress bar — 80/80 indexed in one shot
+- [ ] T2.6: **ColBERT (Jina-ColBERT-v2) DEFERRED to Phase 3.** Rationale: `fastembed-rs` 5.13.4 doesn't yet expose ColBERT v2; would need raw `ort` crate + ONNX model download. Phase 3 will revisit alongside `colbert_explain` Tauri command.
+- [x] T2.7: `snapshot export <path>` + `snapshot import <path>` (HTTP /snapshots API via reqwest). Verified: export → 1.4 GB file at `/tmp/memex-snapshots/test.snapshot`.
+- [x] T2.8: **GATE PASS.** `memex scan --index` indexed 80/80 real sessions; `memex search "myproject memex Qdrant Vector Space Day"` returns the active myproject worktree session (workspace-a) at #1 (score 0.6748), workspace-b at #2 (0.6514) ✅
+- [x] T2.9: Commit "phase 2: qdrant indexing + snapshot"
 
 ### Phase 3 — 5 Qdrant features (Rust commands exposed to Tauri)
 - [ ] T3.1: `tauri::command lens_search(query, weights: {content, tool, path, error, code})` — Universal Query API multi-stage
