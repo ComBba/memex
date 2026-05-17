@@ -2,38 +2,104 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
-    <script type="module" src="/main.js" defer></script>
+    <title>Memex</title>
+    <link rel="stylesheet" href="/styles.css" />
   </head>
-
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
-
-      <div class="row">
-        <a href="https://tauri.app" target="_blank">
-          <img src="/assets/tauri.svg" class="logo tauri" alt="Tauri logo" />
-        </a>
-        <a
-          href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"
-          target="_blank"
-        >
-          <img
-            src="/assets/javascript.svg"
-            class="logo vanilla"
-            alt="JavaScript logo"
-          />
-        </a>
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="brand">memex</span>
+        <span id="collection-info" class="status muted">— connecting…</span>
       </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
+      <div class="topbar-search">
+        <input
+          id="search-input"
+          type="search"
+          placeholder="Search your past sessions   ⌘K"
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
+      <div class="topbar-actions">
+        <button id="btn-topology" type="button" class="btn">Topology</button>
+        <button id="btn-mix" type="button" class="btn">Mix &amp; Match</button>
+        <button id="btn-snapshot" type="button" class="btn">Snapshot</button>
+        <button id="btn-refresh" type="button" class="btn primary">Re-index</button>
+      </div>
+    </header>
 
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
+    <main class="layout">
+      <aside class="sidebar">
+        <h2 class="side-title">Lens</h2>
+        <p class="side-desc">
+          Weight each named vector. Move a slider to 0 to drop that lens;
+          raise it to bias toward that signal.
+        </p>
+        <div id="lens-sliders" class="sliders"></div>
+        <button id="btn-reset-lens" type="button" class="btn ghost">Reset lens</button>
+
+        <h2 class="side-title pad-top">Recall</h2>
+        <p class="side-desc">
+          Paste a failing error and Memex will surface past sessions that
+          fixed something similar.
+        </p>
+        <textarea
+          id="recall-input"
+          rows="3"
+          placeholder="Paste an error message…"
+        ></textarea>
+        <button id="btn-recall" type="button" class="btn">Recall fixes</button>
+      </aside>
+
+      <section class="results" id="results">
+        <div class="empty" id="results-empty">
+          Start typing to search across <span id="results-count">your</span> sessions.
+        </div>
+      </section>
+
+      <aside class="inspector" id="inspector">
+        <div class="empty">Click a result to inspect.</div>
+      </aside>
     </main>
+
+    <dialog id="topology-modal" class="modal">
+      <header>
+        <h3>Topology — MST of session content vectors</h3>
+        <button type="button" class="btn ghost" data-close>Close</button>
+      </header>
+      <div id="topology-canvas" class="topology"></div>
+    </dialog>
+
+    <dialog id="mix-modal" class="modal">
+      <header>
+        <h3>Mix &amp; Match — Discovery API</h3>
+        <button type="button" class="btn ghost" data-close>Close</button>
+      </header>
+      <div class="mix-body">
+        <p class="side-desc">
+          Drag two or more results below as positives (anchors) and at least
+          one as negative (anti-context). Discovery will rank similar
+          sessions accordingly.
+        </p>
+        <label>Positive sessions</label>
+        <div id="mix-positive" class="dropzone" data-side="positive">
+          <span class="dropzone-hint">drop ids here…</span>
+        </div>
+        <label>Negative sessions</label>
+        <div id="mix-negative" class="dropzone" data-side="negative">
+          <span class="dropzone-hint">drop ids here…</span>
+        </div>
+        <button id="btn-run-mix" type="button" class="btn primary">Run discovery</button>
+        <div id="mix-results" class="mix-results"></div>
+      </div>
+    </dialog>
+
+    <footer class="statusbar">
+      <span id="status-text">Ready.</span>
+      <span id="status-latency" class="muted"></span>
+    </footer>
+
+    <script type="module" src="/main.js"></script>
   </body>
 </html>

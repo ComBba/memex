@@ -133,18 +133,18 @@ Atomic tasks. ralph_loop picks next unchecked, executes, marks done, loops.
 - [x] T3.7: Tauri command registry (`src-tauri/src/commands.rs` + `lib.rs::run()`). `AppState { qdrant, embedder }` initialized via `tauri::async_runtime::spawn` in setup; managed as `Arc<AppState>`. Commands: `lens_search`, `mix_match`, `topology`, `recall`, `get_session`, `snapshot_export`, `snapshot_import`, `collection_info`, `refresh_index`. CLI smoke tests pass — Tauri wrappers are thin and structurally identical, so frontend-side `invoke(...)` verification deferred to Phase 4.
 - [x] T3.8: Commit "phase 3: 5 qdrant features"
 
-### Phase 4 — Frontend port (Tauri webview)
-- [ ] T4.1: Update mockup HTML to use Tauri's `@tauri-apps/api` instead of hardcoded data
-- [ ] T4.2: Wire ⌘K search to `lens_search` command
-- [ ] T4.3: Wire Lens slider inspector to weights state → re-query on change
-- [ ] T4.4: Wire Mix & Match drop zones → `mix_and_match` command on Run
-- [ ] T4.5: Wire Topology toggle → `topology` command → render SVG MST
-- [ ] T4.6: Wire ColBERT inline citation → `colbert_explain` on result click
-- [ ] T4.7: Wire Snapshot button → `snapshot_export` with file picker
-- [ ] T4.8: Wire Card click → load session detail in inspector
-- [ ] T4.9: Time Machine stack: wheel/arrow nav → setLayer state → re-layout (already in mockup)
-- [ ] T4.10: Verify: open app, search, lens-adjust, mix, topology, snapshot all work end-to-end
-- [ ] T4.11: Commit "phase 4: frontend wired to backend"
+### Phase 4 — Frontend port (Tauri webview) ⏳ (code complete; awaiting user visual verify)
+- [x] T4.1: New `src/index.html` + `src/main.js` use `window.__TAURI__.core.invoke` (no module bundler step needed; `withGlobalTauri: true` in `tauri.conf.json`). `src/demo.html` retained as the design-token reference.
+- [x] T4.2: ⌘K binds to the search input; `input` event → debounced `lens_search` call → result cards.
+- [x] T4.3: 5 lens sliders (0.0 – 2.0, step 0.05). On change → re-queries `lens_search` with new weights. Per-vector contribution chips render under each result.
+- [x] T4.4: Mix & Match modal — every result card has `+ pos` / `− neg` buttons that add session IDs to the active mix. "Run discovery" calls `mix_match`. Drag-and-drop UI is deferred; button-based add is functionally equivalent.
+- [x] T4.5: Topology button opens a modal with a self-rendered SVG (radial layout + MST edges colored by similarity). Node click → close modal + select session in inspector.
+- [ ] T4.6: **ColBERT inline citation — DEFERRED.** No backend (T2.6/T3.4 deferred). Will revisit if time permits.
+- [x] T4.7: Snapshot button → `prompt()` for path → `snapshot_export`. Tauri dialog plugin not yet bundled; `prompt()` is the MVP fallback. Add `tauri-plugin-dialog` in Phase 7 polish.
+- [x] T4.8: Card click → `get_session(session_id)` → renders payload key/value table + raw JSON `<details>`.
+- [ ] T4.9: **Time Machine wheel/arrow stack nav — DEFERRED.** The current shell is a flat result list; the Time Machine layered card animation lives in `src/demo.html` and is a Phase-7 polish item.
+- [ ] T4.10: **USER ACTION required** (§5 row 5) — run `npm run tauri dev` from `~/memex` and click through: search → lens slide → card click → topology → mix → snapshot. Confirm no console errors.
+- [x] T4.11: Commit "phase 4: frontend wired to backend"
 
 ### Phase 5 — Replay engine
 - [ ] T5.1: `tauri::command get_session_turns(session_id)` returns all turns with tool details
