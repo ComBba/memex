@@ -174,15 +174,15 @@ Atomic tasks. ralph_loop picks next unchecked, executes, marks done, loops.
 - [x] T7.6: Commit "phase 7: macos polish + .app build"
 
 ### Phase 8 — Demo + README + submit
-- [ ] T8.1: Record 3-min demo video showing all 5 features + Replay (user-driven)
-- [ ] T8.2: Write README.md: install, scan, search, replay, snapshot. Include screenshots.
-- [ ] T8.3: Add LICENSE (Apache 2.0)
-- [ ] T8.4: Add architecture.md with diagrams (lift from this doc + mockups)
-- [ ] T8.5: Add docs/qdrant-features.md explaining all 5 Qdrant-unique features
-- [ ] T8.6: `gh repo edit --add-topic qdrant --add-topic vector-search`
-- [ ] T8.7: Upload demo video to YouTube (unlisted OK), embed in README
-- [ ] T8.8: User submits to VSD via Google Form (https://forms.gle/YDQ2TDUi8MqS9Vx28)
-- [ ] T8.9: Commit "phase 8: ready for submission"
+- [ ] T8.1: **USER ACTION** — record 3-min demo video showing all 5 features + Replay
+- [x] T8.2: README.md — full install / run / CLI reference / 5-feature table (Phase 7 commit)
+- [x] T8.3: LICENSE — Apache 2.0 (from initial `gh repo create --license apache-2.0`)
+- [x] T8.4: docs/architecture.md — data flow, schema, design tradeoffs (Phase 7 commit)
+- [x] T8.5: docs/qdrant-features.md — engineer's tour of each of the 5 features (Phase 7 commit)
+- [x] T8.6: `gh repo edit` — description + 10 topics (qdrant, vector-search, tauri, rust, claude-code, session-replay, embeddings, fastembed, developer-tools, macos-app)
+- [ ] T8.7: **USER ACTION** — upload demo video to YouTube (unlisted OK), embed in README (placeholder section at the top of README — just paste the video iframe)
+- [ ] T8.8: **USER ACTION** — submit to VSD Google Form (https://forms.gle/YDQ2TDUi8MqS9Vx28)
+- [ ] T8.9: Final commit after T8.1/T8.7 land — "ready for submission"
 
 ---
 
