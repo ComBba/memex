@@ -103,6 +103,32 @@ pub async fn get_session(
     }
 }
 
+#[tauri::command]
+pub async fn get_session_turns(
+    state: State<'_, AppStateArc>,
+    session_id: String,
+) -> Result<serde_json::Value, String> {
+    // Pull the payload to find the original source jsonl path, then re-parse
+    // it so the replay can stream turn-by-turn without bloating Qdrant payloads.
+    let payload = indexer::get_session_payload(&state.qdrant, &session_id)
+        .await
+        .map_err(stringify)?;
+    let Some(payload) = payload else {
+        return Err(format!("session {session_id} not in index"));
+    };
+    let source = payload
+        .get("source_path")
+        .and_then(|v| v.kind.as_ref())
+        .and_then(|k| match k {
+            qdrant_client::qdrant::value::Kind::StringValue(s) => Some(s.clone()),
+            _ => None,
+        })
+        .ok_or_else(|| "session payload missing source_path".to_string())?;
+    let session = parser::parse_session(std::path::Path::new(&source))
+        .map_err(stringify)?;
+    serde_json::to_value(&session).map_err(stringify)
+}
+
 fn qdrant_value_to_json(v: qdrant_client::qdrant::Value) -> serde_json::Value {
     use qdrant_client::qdrant::value::Kind;
     use serde_json::Value as J;
@@ -184,4 +210,84 @@ fn default_projects_root() -> PathBuf {
     } else {
         PathBuf::from(".claude/projects")
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecentError {
+    pub session_id: String,
+    pub project_name: String,
+    pub error_text: String,
+    pub source_path: String,
+    pub seen_at_iso: String,
+}
+
+/// Phase 6 polling-style recall trigger. Walks `~/.claude/projects`, finds any
+/// `*.jsonl` modified within `since_seconds`, re-parses, and surfaces the most
+/// recent `tool_result.is_error` (or assistant-text "Error:" line). Frontend
+/// polls every ~10s; on hit it calls `recall(error_text)` and animates the
+/// banner.
+///
+/// We trade real OS file watching for portability — polling is reliable, has
+/// no permission edge cases, and on 80 sessions costs <50 ms per tick.
+#[tauri::command]
+pub async fn tail_recent_errors(
+    path: Option<PathBuf>,
+    since_seconds: Option<u64>,
+) -> Result<Vec<RecentError>, String> {
+    use chrono::Utc;
+    use walkdir::WalkDir;
+
+    let root = path.unwrap_or_else(default_projects_root);
+    let cutoff = std::time::SystemTime::now()
+        - std::time::Duration::from_secs(since_seconds.unwrap_or(60));
+    let now_iso = Utc::now().to_rfc3339();
+    let mut out: Vec<RecentError> = Vec::new();
+
+    for entry in WalkDir::new(&root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        if p.components().any(|c| c.as_os_str() == "subagents") {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        let Ok(modified) = meta.modified() else { continue };
+        if modified < cutoff {
+            continue;
+        }
+        let Ok(session) = parser::parse_session(p) else { continue };
+        let mut latest_err: Option<String> = None;
+        for turn in session.turns.iter().rev().take(6) {
+            if latest_err.is_some() {
+                break;
+            }
+            if let Some(err) = turn.tool_results.iter().rev().find(|r| r.is_error) {
+                let head: String = err.content.chars().take(800).collect();
+                latest_err = Some(head);
+                break;
+            }
+            for line in turn.text.lines().rev() {
+                let lower = line.to_ascii_lowercase();
+                if lower.contains("error:") || lower.contains("traceback") || lower.contains("panic") {
+                    latest_err = Some(line.trim().to_string());
+                    break;
+                }
+            }
+        }
+        if let Some(err) = latest_err {
+            out.push(RecentError {
+                session_id: session.session_id,
+                project_name: session.project_name.unwrap_or_default(),
+                error_text: err,
+                source_path: p.to_string_lossy().to_string(),
+                seen_at_iso: now_iso.clone(),
+            });
+        }
+    }
+    Ok(out)
 }

@@ -13,12 +13,27 @@ const state = {
   selected: null,
   mix: { positive: [], negative: [] },
   collectionPoints: 0,
+  replay: {
+    sessionId: null,
+    turns: [],
+    cursor: 0,
+    playing: false,
+    speedMs: 500,
+    timer: null,
+  },
+  recall: {
+    dismissedKeys: new Set(),
+    lastBannerError: null,
+  },
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
   buildLensSliders();
   attachEvents();
+  attachReplayEvents();
+  attachRecallBannerEvents();
   await pollUntilReady();
+  startRecallPolling();
 });
 
 async function pollUntilReady(attempt = 0) {
@@ -163,6 +178,7 @@ function renderResults(hits) {
       <div class="vec-breakdown">${vecBreak}</div>
       <footer>
         <code class="sid">${h.session_id}</code>
+        <button class="btn ghost xs" data-action="replay">Replay</button>
         <button class="btn ghost xs" data-action="add-positive">+ pos</button>
         <button class="btn ghost xs" data-action="add-negative">− neg</button>
       </footer>
@@ -173,9 +189,13 @@ function renderResults(hits) {
       .forEach((btn) =>
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
-          const side =
-            btn.dataset.action === "add-positive" ? "positive" : "negative";
-          addToMix(side, h.session_id);
+          if (btn.dataset.action === "replay") {
+            openReplay(h.session_id, h);
+          } else {
+            const side =
+              btn.dataset.action === "add-positive" ? "positive" : "negative";
+            addToMix(side, h.session_id);
+          }
         }),
       );
     root.appendChild(card);
@@ -470,4 +490,314 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
   );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — Replay engine
+// ---------------------------------------------------------------------------
+
+function attachReplayEvents() {
+  document.getElementById("replay-prev").addEventListener("click", () => stepReplay(-1));
+  document.getElementById("replay-next").addEventListener("click", () => stepReplay(+1));
+  document.getElementById("replay-play").addEventListener("click", toggleReplayPlay);
+  document
+    .getElementById("replay-speed")
+    .addEventListener("change", (e) => {
+      state.replay.speedMs = parseInt(e.target.value, 10);
+      if (state.replay.playing) {
+        stopReplayTimer();
+        startReplayTimer();
+      }
+    });
+  document.getElementById("replay-modal").addEventListener("close", () => {
+    stopReplayTimer();
+    state.replay.playing = false;
+  });
+}
+
+async function openReplay(sessionId, hit) {
+  const modal = document.getElementById("replay-modal");
+  modal.showModal();
+  document.getElementById("replay-title").textContent = `Replay — ${hit?.project_name || sessionId.slice(0, 8)}`;
+  document.getElementById("replay-detail").innerHTML =
+    `<div class="empty">Loading session…</div>`;
+  document.getElementById("replay-list").innerHTML = "";
+  state.replay = {
+    sessionId,
+    turns: [],
+    cursor: 0,
+    playing: false,
+    speedMs: parseInt(document.getElementById("replay-speed").value, 10),
+    timer: null,
+  };
+  try {
+    const session = await invoke("get_session_turns", { sessionId });
+    state.replay.turns = session.turns || [];
+    if (!state.replay.turns.length) {
+      document.getElementById("replay-detail").innerHTML =
+        `<div class="empty">Session has no turns to replay.</div>`;
+      return;
+    }
+    renderReplayList(session);
+    renderReplayTurn(0);
+  } catch (err) {
+    document.getElementById("replay-detail").innerHTML =
+      `<div class="empty">Failed to load: ${escapeHtml(String(err))}</div>`;
+  }
+}
+
+function renderReplayList(session) {
+  const list = document.getElementById("replay-list");
+  list.innerHTML = "";
+  state.replay.turns.forEach((turn, i) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "replay-row";
+    row.dataset.index = i;
+    const role = turn.role === "user" ? "U" : turn.role === "assistant" ? "A" : "S";
+    const preview = (turn.text || "")
+      .replace(/\s+/g, " ")
+      .slice(0, 60);
+    const tools = (turn.tool_calls || [])
+      .map((t) => t.name)
+      .join(", ");
+    row.innerHTML = `
+      <span class="replay-row-role role-${turn.role}">${role}</span>
+      <span class="replay-row-preview">${escapeHtml(preview || tools || "(empty)")}</span>
+      <span class="replay-row-meta">${turn.tool_calls?.length ? "🔧" + turn.tool_calls.length : ""}</span>
+    `;
+    row.addEventListener("click", () => {
+      state.replay.cursor = i;
+      renderReplayTurn(i);
+      stopReplayTimer();
+      state.replay.playing = false;
+      updatePlayButton();
+    });
+    list.appendChild(row);
+  });
+  updateProgress();
+}
+
+function renderReplayTurn(i) {
+  const turn = state.replay.turns[i];
+  if (!turn) return;
+  const detail = document.getElementById("replay-detail");
+  const ts = turn.timestamp ? new Date(turn.timestamp).toISOString().slice(0, 19).replace("T", " ") : "";
+
+  const toolViz = (turn.tool_calls || [])
+    .map((tc) => renderToolCall(tc, turn.tool_results || []))
+    .join("");
+
+  const toolResults = (turn.tool_results || [])
+    .filter((r) => !(turn.tool_calls || []).some((tc) => tc.id === r.tool_use_id))
+    .map(renderStrayResult)
+    .join("");
+
+  detail.innerHTML = `
+    <div class="turn-meta">
+      <span class="turn-role role-${turn.role}">${turn.role}</span>
+      <span class="muted">${escapeHtml(ts)}</span>
+      ${turn.is_sidechain ? '<span class="badge">sidechain</span>' : ""}
+    </div>
+    ${turn.text ? `<pre class="turn-text">${escapeHtml(turn.text)}</pre>` : ""}
+    ${toolViz}
+    ${toolResults}
+  `;
+
+  // Highlight the selected row + scroll into view.
+  for (const r of document.querySelectorAll(".replay-row")) {
+    r.classList.toggle("selected", parseInt(r.dataset.index, 10) === i);
+  }
+  const selectedRow = document.querySelector(`.replay-row[data-index="${i}"]`);
+  if (selectedRow) selectedRow.scrollIntoView({ block: "nearest" });
+  state.replay.cursor = i;
+  updateProgress();
+}
+
+function renderToolCall(tc, results) {
+  const result = results.find((r) => r.tool_use_id === tc.id);
+  const input = tc.input || {};
+  let body = "";
+  switch (tc.name) {
+    case "Bash": {
+      body = `
+        <div class="tool-block tool-bash">
+          <div class="tool-head">Bash · ${escapeHtml(input.description || "")}</div>
+          <pre class="terminal">$ ${escapeHtml(input.command || "")}</pre>
+          ${result ? `<pre class="terminal output">${escapeHtml(result.content.slice(0, 1200))}</pre>` : ""}
+        </div>`;
+      break;
+    }
+    case "Edit":
+    case "MultiEdit": {
+      body = `
+        <div class="tool-block tool-edit">
+          <div class="tool-head">Edit · <code>${escapeHtml(input.file_path || "")}</code></div>
+          ${input.old_string ? `<pre class="diff diff-old">- ${escapeHtml(input.old_string.slice(0, 600))}</pre>` : ""}
+          ${input.new_string ? `<pre class="diff diff-new">+ ${escapeHtml(input.new_string.slice(0, 600))}</pre>` : ""}
+        </div>`;
+      break;
+    }
+    case "Write": {
+      body = `
+        <div class="tool-block tool-edit">
+          <div class="tool-head">Write · <code>${escapeHtml(input.file_path || "")}</code></div>
+          <pre class="diff diff-new">${escapeHtml(String(input.content || "").slice(0, 800))}</pre>
+        </div>`;
+      break;
+    }
+    case "Read": {
+      body = `
+        <div class="tool-block tool-read">
+          <div class="tool-head">Read · <code>${escapeHtml(input.file_path || "")}</code></div>
+          ${result ? `<pre class="terminal output">${escapeHtml(result.content.slice(0, 800))}</pre>` : ""}
+        </div>`;
+      break;
+    }
+    case "WebFetch":
+    case "WebSearch": {
+      body = `
+        <div class="tool-block">
+          <div class="tool-head">${tc.name} · ${escapeHtml(input.url || input.query || "")}</div>
+          ${result ? `<pre class="terminal output">${escapeHtml(result.content.slice(0, 600))}</pre>` : ""}
+        </div>`;
+      break;
+    }
+    case "Task":
+    case "Agent": {
+      body = `
+        <div class="tool-block">
+          <div class="tool-head">${tc.name} · ${escapeHtml(input.subagent_type || input.description || "")}</div>
+          <pre class="diff diff-new">${escapeHtml((input.prompt || "").slice(0, 600))}</pre>
+        </div>`;
+      break;
+    }
+    default: {
+      body = `
+        <div class="tool-block">
+          <div class="tool-head">${tc.name}</div>
+          <pre class="terminal">${escapeHtml(JSON.stringify(input).slice(0, 600))}</pre>
+          ${result ? `<pre class="terminal output">${escapeHtml(result.content.slice(0, 600))}</pre>` : ""}
+        </div>`;
+    }
+  }
+  if (result && result.is_error) {
+    return body.replace("tool-block", "tool-block tool-error");
+  }
+  return body;
+}
+
+function renderStrayResult(r) {
+  return `
+    <div class="tool-block ${r.is_error ? "tool-error" : ""}">
+      <div class="tool-head">tool_result</div>
+      <pre class="terminal output">${escapeHtml(r.content.slice(0, 800))}</pre>
+    </div>`;
+}
+
+function stepReplay(delta) {
+  const total = state.replay.turns.length;
+  if (!total) return;
+  const next = Math.max(0, Math.min(total - 1, state.replay.cursor + delta));
+  renderReplayTurn(next);
+}
+
+function toggleReplayPlay() {
+  state.replay.playing = !state.replay.playing;
+  updatePlayButton();
+  if (state.replay.playing) startReplayTimer();
+  else stopReplayTimer();
+}
+
+function startReplayTimer() {
+  stopReplayTimer();
+  state.replay.timer = setInterval(() => {
+    const next = state.replay.cursor + 1;
+    if (next >= state.replay.turns.length) {
+      stopReplayTimer();
+      state.replay.playing = false;
+      updatePlayButton();
+      return;
+    }
+    renderReplayTurn(next);
+  }, state.replay.speedMs);
+}
+
+function stopReplayTimer() {
+  if (state.replay.timer) {
+    clearInterval(state.replay.timer);
+    state.replay.timer = null;
+  }
+}
+
+function updatePlayButton() {
+  document.getElementById("replay-play").textContent = state.replay.playing ? "❚❚" : "▶";
+}
+
+function updateProgress() {
+  document.getElementById("replay-progress").textContent =
+    `${state.replay.cursor + 1} / ${state.replay.turns.length}`;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Proactive recall (polling)
+// ---------------------------------------------------------------------------
+
+const RECALL_POLL_MS = 12_000;
+
+async function startRecallPolling() {
+  try {
+    await pollRecall();
+  } catch {}
+  setInterval(pollRecall, RECALL_POLL_MS);
+}
+
+async function pollRecall() {
+  try {
+    const recent = await invoke("tail_recent_errors", { sinceSeconds: 90 });
+    if (!recent || !recent.length) return;
+    // Pick the most-recent error not already shown.
+    for (const ev of recent) {
+      const key = `${ev.session_id}::${ev.error_text.slice(0, 80)}`;
+      if (state.recall.dismissedKeys.has(key)) continue;
+      // Run recall to find past sessions that fixed something similar.
+      const hits = await invoke("recall", {
+        errorText: ev.error_text,
+        limit: 3,
+      });
+      // Filter out the current (still-failing) session itself.
+      const useful = hits.filter((h) => h.session_id !== ev.session_id);
+      if (!useful.length) continue;
+      showRecallBanner(ev, useful);
+      state.recall.lastBannerError = { ev, key, hits: useful };
+      return; // only one banner at a time
+    }
+  } catch (err) {
+    // Silent — Qdrant may not be ready yet.
+  }
+}
+
+function showRecallBanner(ev, hits) {
+  const banner = document.getElementById("recall-banner");
+  const detail = document.getElementById("recall-banner-detail");
+  detail.textContent = `${ev.project_name || "?"} just hit: "${ev.error_text.slice(0, 120).replace(/\s+/g, " ")}" — ${hits.length} past session(s) may help`;
+  banner.classList.remove("hidden");
+}
+
+function attachRecallBannerEvents() {
+  document.getElementById("recall-banner-dismiss").addEventListener("click", () => {
+    if (state.recall.lastBannerError) {
+      state.recall.dismissedKeys.add(state.recall.lastBannerError.key);
+    }
+    document.getElementById("recall-banner").classList.add("hidden");
+  });
+  document.getElementById("recall-banner-open").addEventListener("click", () => {
+    const ctx = state.recall.lastBannerError;
+    if (!ctx) return;
+    document.getElementById("recall-banner").classList.add("hidden");
+    state.recall.dismissedKeys.add(ctx.key);
+    // Open replay for the first past-fix candidate.
+    const target = ctx.hits[0];
+    openReplay(target.session_id, target);
+  });
 }

@@ -43,10 +43,12 @@ pub fn run() {
             commands::topology,
             commands::recall,
             commands::get_session,
+            commands::get_session_turns,
             commands::snapshot_export,
             commands::snapshot_import,
             commands::collection_info,
             commands::refresh_index,
+            commands::tail_recent_errors,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

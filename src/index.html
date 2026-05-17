@@ -95,6 +95,43 @@
       </div>
     </dialog>
 
+    <dialog id="replay-modal" class="modal replay-modal">
+      <header>
+        <h3 id="replay-title">Replay</h3>
+        <div class="replay-controls">
+          <button id="replay-prev" type="button" class="btn xs">⏮</button>
+          <button id="replay-play" type="button" class="btn xs primary">▶</button>
+          <button id="replay-next" type="button" class="btn xs">⏭</button>
+          <select id="replay-speed" class="speed">
+            <option value="2000">1×</option>
+            <option value="1000">2×</option>
+            <option value="500" selected>4×</option>
+            <option value="250">8×</option>
+          </select>
+          <span id="replay-progress" class="muted">0 / 0</span>
+          <button type="button" class="btn ghost" data-close>Close</button>
+        </div>
+      </header>
+      <div class="replay-body">
+        <aside class="replay-list" id="replay-list"></aside>
+        <section class="replay-detail" id="replay-detail">
+          <div class="empty">Pick a turn or press ▶ to start.</div>
+        </section>
+      </div>
+    </dialog>
+
+    <div id="recall-banner" class="recall-banner hidden">
+      <div class="recall-banner-body">
+        <span class="recall-icon">⌘</span>
+        <div class="recall-text">
+          <strong id="recall-banner-title">I&rsquo;ve seen this error before</strong>
+          <span id="recall-banner-detail" class="muted"></span>
+        </div>
+        <button type="button" id="recall-banner-open" class="btn primary xs">Open replay</button>
+        <button type="button" id="recall-banner-dismiss" class="btn ghost xs">Dismiss</button>
+      </div>
+    </div>
+
     <footer class="statusbar">
       <span id="status-text">Ready.</span>
       <span id="status-latency" class="muted"></span>

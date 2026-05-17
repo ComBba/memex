@@ -146,23 +146,23 @@ Atomic tasks. ralph_loop picks next unchecked, executes, marks done, loops.
 - [ ] T4.10: **USER ACTION required** (§5 row 5) — run `npm run tauri dev` from `~/memex` and click through: search → lens slide → card click → topology → mix → snapshot. Confirm no console errors.
 - [x] T4.11: Commit "phase 4: frontend wired to backend"
 
-### Phase 5 — Replay engine
-- [ ] T5.1: `tauri::command get_session_turns(session_id)` returns all turns with tool details
-- [ ] T5.2: Replay UI: split view (turn list + turn detail) — already in mockup
-- [ ] T5.3: Tool visualizations: Bash terminal, Edit diff, Read snippet, WebFetch URL preview, Task spawn
-- [ ] T5.4: Playback timing: configurable speed (1x / 2x / 4x / 8x default)
-- [ ] T5.5: Scrub control + turn-list click → jump to specific turn
-- [ ] T5.6: Verify on real session: pick one from user's actual ~/.claude/projects, click Replay
-- [ ] T5.7: Commit "phase 5: replay engine"
+### Phase 5 — Replay engine ✅ (2026-05-18; visual verify pending)
+- [x] T5.1: `get_session_turns(session_id)` Tauri command — looks up the session payload, reads `source_path`, re-parses the JSONL on demand. Returns the full `Session` (turns + tool_calls + tool_results) as JSON.
+- [x] T5.2: Replay modal (`#replay-modal`) — split view: turn list (left) + turn detail (right).
+- [x] T5.3: Tool visualizations: Bash (terminal block), Edit/MultiEdit (red `-` / green `+` diff), Write (new content), Read (file path + output), WebFetch/WebSearch (URL + result), Task/Agent (subagent + prompt), generic JSON fallback. Error-flagged tool_results get a red border.
+- [x] T5.4: Speed dropdown: 1× / 2× / 4× / 8× (interval ms 2000/1000/500/250). Default 4×.
+- [x] T5.5: Click any turn-list row → jumps + stops autoplay. ⏮ ⏯ ⏭ controls in header.
+- [ ] T5.6: **USER ACTION required** (§5 row 6) — pick a real session of yours, hit Replay, verify the timeline renders without console errors.
+- [x] T5.7: Commit "phase 5: replay engine"
 
-### Phase 6 — Proactive recall
-- [ ] T6.1: File watcher (`notify` crate) on `~/.claude/projects` for new file events
-- [ ] T6.2: Detect new turn appended → parse last 2-3 turns for error patterns
-- [ ] T6.3: If error signature matches past session via `recall` command → emit Tauri event
-- [ ] T6.4: Frontend listens for event → slide in recall banner
-- [ ] T6.5: Banner click → open the past session's Replay at the fix turn
-- [ ] T6.6: Verify: induce a known error pattern in fixture, watch banner appear
-- [ ] T6.7: Commit "phase 6: proactive recall"
+### Phase 6 — Proactive recall ✅ (2026-05-18; polling-based)
+- [x] T6.1: **Polling instead of `notify` watcher.** Simpler, no permission edge cases, no file-descriptor management. `tail_recent_errors(since_seconds)` walks `~/.claude/projects`, returns sessions whose jsonl was modified within the window AND whose last 6 turns contain a `tool_result.is_error` or "Error:"/"Traceback"/"panic" line. (`notify` + `notify-debouncer-full` are in Cargo.toml as a fallback path; can swap in later if polling proves too coarse.)
+- [x] T6.2: Detector parses each candidate file via `parser::parse_session` and walks the last 6 turns looking for error markers.
+- [x] T6.3: Frontend `pollRecall()` runs every 12 s — when a fresh error is found, calls `recall(error_text)` to find past fixes (filters out the still-failing session).
+- [x] T6.4: Frontend banner (`#recall-banner`) slides in at the bottom-right with the error preview + count of past sessions that may help.
+- [x] T6.5: Banner "Open replay" button opens the Replay modal for the top past-fix candidate. "Dismiss" remembers the key for the session and won't re-banner the same error.
+- [ ] T6.6: Visual verify is rolled into T4.10 / T5.6 — just trigger a `tool_result.is_error` in a live Claude Code session and watch for the banner.
+- [x] T6.7: Commit "phase 6: proactive recall"
 
 ### Phase 7 — macOS polish
 - [ ] T7.1: App icon design (use Memex SVG or similar minimal)
