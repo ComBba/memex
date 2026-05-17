@@ -136,8 +136,8 @@ fn cmd_scan(path: Option<PathBuf>, index: bool, limit: Option<usize>) -> Result<
     let to_show = limit.unwrap_or(total).min(total);
 
     println!(
-        "{:<19} {:<24} {:<5} {:<5} {:<9} {:<11} {}",
-        "start", "project", "user", "asst", "tools", "branch", "title"
+        "{:<19} {:<24} {:<5} {:<5} {:<9} {:<11} title",
+        "start", "project", "user", "asst", "tools", "branch"
     );
     println!("{}", "-".repeat(120));
     for s in sessions.iter().take(to_show) {
@@ -150,8 +150,7 @@ fn cmd_scan(path: Option<PathBuf>, index: bool, limit: Option<usize>) -> Result<
         .map(|t| t.tool_calls.len())
         .sum();
     eprintln!(
-        "\nparsed {} session(s) (shown: {}), {} total tool calls",
-        total, to_show, tool_total
+        "\nparsed {total} session(s) (shown: {to_show}), {tool_total} total tool calls"
     );
 
     if index {
@@ -165,8 +164,15 @@ fn cmd_scan(path: Option<PathBuf>, index: bool, limit: Option<usize>) -> Result<
             let client = indexer::connect().await?;
             indexer::ensure_collection(&client).await?;
             let embedder = indexer::Embedder::new()?;
-            let ok = indexer::bulk_index(&client, &embedder, &sessions).await?;
-            eprintln!("\nindexed {ok}/{} session(s) into '{}'", total, indexer::COLLECTION);
+            let report = indexer::bulk_index(&client, &embedder, &sessions).await?;
+            eprintln!(
+                "\nindexed {}/{} session(s) into '{}' ({} duplicate sessionId(s) skipped, {} error(s))",
+                report.indexed,
+                total,
+                indexer::COLLECTION,
+                report.duplicates_skipped,
+                report.errors,
+            );
             anyhow::Ok(())
         })?;
     }

@@ -12,12 +12,13 @@
 //! sparse on `path` and ColBERT multi-vector on `content` — those are deferred
 //! to Phase 3+ once the search loop is wired end-to-end.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use futures::future::try_join_all;
 use once_cell::sync::Lazy;
 use qdrant_client::{
     qdrant::{
@@ -354,11 +355,21 @@ pub async fn index_session(
     Ok(())
 }
 
+/// Result of a bulk indexing pass — distinguishes "actually indexed" from
+/// "silently skipped because of duplicate sessionId" so the caller can be
+/// honest about coverage.
+#[derive(Debug, Clone, Copy)]
+pub struct BulkIndexReport {
+    pub indexed: usize,
+    pub duplicates_skipped: usize,
+    pub errors: usize,
+}
+
 pub async fn bulk_index(
     client: &Qdrant,
     embedder: &Embedder,
     sessions: &[Session],
-) -> Result<usize> {
+) -> Result<BulkIndexReport> {
     use indicatif::{ProgressBar, ProgressStyle};
     let pb = ProgressBar::new(sessions.len() as u64);
     pb.set_style(
@@ -366,21 +377,48 @@ pub async fn bulk_index(
             .unwrap()
             .progress_chars("=> "),
     );
-    let mut ok = 0;
+
+    // B2: two jsonl files can carry the same `sessionId` (we've seen this in
+    // real ~/.claude/projects data). UUID v5(session_id) makes those collide
+    // on the Qdrant point id, so the second upsert *silently overwrites*
+    // the first. Detect + log + keep the first occurrence so the count
+    // we report matches what Qdrant actually stores.
+    let mut seen_ids: HashSet<String> = HashSet::new();
+    let mut report = BulkIndexReport {
+        indexed: 0,
+        duplicates_skipped: 0,
+        errors: 0,
+    };
+
     for s in sessions {
         let label = s
             .project_name
             .clone()
             .unwrap_or_else(|| s.session_id.clone());
         pb.set_message(label);
+
+        if !seen_ids.insert(s.session_id.clone()) {
+            pb.println(format!(
+                "  ⊘ duplicate sessionId={} ({}) — kept first occurrence",
+                &s.session_id[..8.min(s.session_id.len())],
+                s.source_path.display()
+            ));
+            report.duplicates_skipped += 1;
+            pb.inc(1);
+            continue;
+        }
+
         match index_session(client, embedder, s).await {
-            Ok(()) => ok += 1,
-            Err(e) => pb.println(format!("  ⚠ {}: {:#}", s.session_id, e)),
+            Ok(()) => report.indexed += 1,
+            Err(e) => {
+                pb.println(format!("  ⚠ {}: {:#}", s.session_id, e));
+                report.errors += 1;
+            }
         }
         pb.inc(1);
     }
     pb.finish_with_message("done");
-    Ok(ok)
+    Ok(report)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -481,20 +519,24 @@ pub async fn lens_search(
         return Ok(Vec::new());
     }
 
-    for (vname, w) in weights.iter() {
-        if w <= 0.0 {
-            continue;
-        }
+    // P1: dispatch one query per non-zero-weight vector in parallel so the
+    // wall-clock latency is dominated by the slowest server-side search rather
+    // than the sum of all 5. Qdrant handles parallel single-vector queries
+    // natively without contention on shared HNSW state.
+    let active: Vec<(&'static str, f32)> =
+        weights.iter().into_iter().filter(|(_, w)| *w > 0.0).collect();
+    let queries = active.iter().map(|(vname, _)| {
         let q: Query = qvec.clone().into();
-        let res = client
-            .query(
-                QueryPointsBuilder::new(COLLECTION)
-                    .query(q)
-                    .using(vname.to_string())
-                    .limit(per_vector_limit)
-                    .with_payload(true),
-            )
-            .await?;
+        let req = QueryPointsBuilder::new(COLLECTION)
+            .query(q)
+            .using((*vname).to_string())
+            .limit(per_vector_limit)
+            .with_payload(true);
+        async move { client.query(req).await }
+    });
+    let responses = try_join_all(queries).await?;
+
+    for ((vname, w), res) in active.iter().zip(responses.into_iter()) {
         for p in res.result {
             let sid = match payload_str(&p.payload, "session_id") {
                 Some(s) => s,
@@ -503,7 +545,7 @@ pub async fn lens_search(
             let weighted = p.score * (w / total_w);
             let entry = combined.entry(sid.clone()).or_default();
             entry.combined_score += weighted;
-            entry.per_vec.insert(vname.to_string(), p.score);
+            entry.per_vec.insert((*vname).to_string(), p.score);
             payloads.entry(sid).or_insert(p.payload);
         }
     }
@@ -713,14 +755,18 @@ pub async fn topology(
     for id in &id_set {
         idx.insert(id.clone(), g.add_node(id.clone()));
     }
-    let empty = qdrant_client::qdrant::SearchMatrixPairs { pairs: Vec::new() };
-    let matrix = resp.result.as_ref().unwrap_or(&empty);
-    for pair in &matrix.pairs {
+    // B1: Qdrant returns `pair.score` as **similarity** (cosine, higher = closer).
+    // MST is a *minimum* spanning tree — it picks the lowest-weight edges. To
+    // get the "most cohesive backbone" we need to feed it **distance**
+    // (low = close), i.e. `1 - similarity`.
+    let matrix2 = resp.result.as_ref().unwrap_or(&empty);
+    for pair in &matrix2.pairs {
         let a = pair.a.as_ref().and_then(point_id_string);
         let b = pair.b.as_ref().and_then(point_id_string);
         if let (Some(a), Some(b)) = (a, b) {
             if let (Some(&na), Some(&nb)) = (idx.get(&a), idx.get(&b)) {
-                g.add_edge(na, nb, pair.score);
+                let distance = (1.0 - pair.score).max(0.0);
+                g.add_edge(na, nb, distance);
             }
         }
     }
@@ -759,11 +805,13 @@ pub async fn recall(
     let vecs = embedder.embed(vec![error_text.to_string()])?;
     let qvec = vecs.into_iter().next().context("no embedding for query")?;
     let q: Query = qvec.into();
-    let mut filter = Filter::default();
-    filter.must = vec![qdrant_client::qdrant::Condition::matches(
-        "has_errors",
-        true,
-    )];
+    let filter = Filter {
+        must: vec![qdrant_client::qdrant::Condition::matches(
+            "has_errors",
+            true,
+        )],
+        ..Default::default()
+    };
     let res = client
         .query(
             QueryPointsBuilder::new(COLLECTION)

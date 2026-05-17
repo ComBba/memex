@@ -13,6 +13,9 @@ const state = {
   selected: null,
   mix: { positive: [], negative: [] },
   collectionPoints: 0,
+  // B3: monotonically-increasing query id; renderResults drops responses
+  // whose generation is older than the latest dispatched query.
+  queryGen: 0,
   replay: {
     sessionId: null,
     turns: [],
@@ -24,8 +27,14 @@ const state = {
   recall: {
     dismissedKeys: new Set(),
     lastBannerError: null,
+    // P2: short-lived cache so repeated polls of the same error_text don't
+    // re-embed + re-search every 12 s.
+    cache: new Map(), // error_text → { hits, ts }
   },
 };
+
+const RECALL_CACHE_TTL_MS = 60_000;
+const RECALL_CACHE_MAX = 50;
 
 document.addEventListener("DOMContentLoaded", async () => {
   buildLensSliders();
@@ -96,6 +105,7 @@ async function onSearchInput(e) {
 }
 
 async function runLensSearch() {
+  const gen = ++state.queryGen;
   const t0 = performance.now();
   setStatus(`Searching "${state.query}"…`);
   try {
@@ -104,11 +114,15 @@ async function runLensSearch() {
       weights: state.weights,
       limit: 20,
     });
+    // B3: if a newer query has already been dispatched, drop this stale
+    // response so we don't overwrite a fresher result list.
+    if (gen !== state.queryGen) return;
     state.hits = hits;
     renderResults(hits);
     setStatus(`${hits.length} hits for "${state.query}"`);
     setLatency(Math.round(performance.now() - t0));
   } catch (err) {
+    if (gen !== state.queryGen) return;
     setStatus(`Search failed: ${err}`);
   }
 }
@@ -320,9 +334,12 @@ function renderTopologySvg(topo, mount) {
     line.setAttribute("y1", a[1]);
     line.setAttribute("x2", b[0]);
     line.setAttribute("y2", b[1]);
-    const opacity = Math.max(0.1, Math.min(0.9, e.distance));
+    // After B1 the Rust side returns true distance (low = similar). For the
+    // SVG we render *similarity* — closer pairs = thicker, more opaque edges.
+    const sim = Math.max(0, Math.min(1, 1 - e.distance));
+    const opacity = Math.max(0.12, Math.min(0.85, sim));
     line.setAttribute("stroke", `rgba(10, 132, 255, ${opacity})`);
-    line.setAttribute("stroke-width", String(0.5 + e.distance * 2));
+    line.setAttribute("stroke-width", String(0.5 + sim * 2));
     svg.appendChild(line);
   }
 
@@ -461,10 +478,14 @@ async function onSnapshot() {
 async function onRefresh() {
   setStatus("Re-indexing ~/.claude/projects…");
   try {
-    const n = await invoke("refresh_index");
-    state.collectionPoints = n;
-    setStatus(`Re-index complete: ${n} sessions indexed.`);
-    document.getElementById("collection-info").textContent = `· ${n} sessions`;
+    const r = await invoke("refresh_index");
+    state.collectionPoints = r.indexed;
+    const dup = r.duplicates_skipped
+      ? ` (${r.duplicates_skipped} duplicate sessionId(s) skipped)`
+      : "";
+    const errs = r.errors ? ` · ${r.errors} error(s)` : "";
+    setStatus(`Re-indexed ${r.indexed}/${r.total_scanned} sessions${dup}${errs}.`);
+    document.getElementById("collection-info").textContent = `· ${r.indexed} sessions`;
   } catch (err) {
     setStatus(`Re-index failed: ${err}`);
   }
@@ -617,11 +638,17 @@ function renderReplayTurn(i) {
 function renderToolCall(tc, results) {
   const result = results.find((r) => r.tool_use_id === tc.id);
   const input = tc.input || {};
+  // B4: tool name comes from the model + jsonl source. For Claude Code it's
+  // a fixed whitelist, but a foreign jsonl could carry arbitrary HTML — be
+  // consistent and escape it everywhere.
+  const name = escapeHtml(tc.name || "?");
+  // Inline `tool-error` class up front so we don't rely on String.replace.
+  const errCls = result && result.is_error ? " tool-error" : "";
   let body = "";
   switch (tc.name) {
     case "Bash": {
       body = `
-        <div class="tool-block tool-bash">
+        <div class="tool-block tool-bash${errCls}">
           <div class="tool-head">Bash · ${escapeHtml(input.description || "")}</div>
           <pre class="terminal">$ ${escapeHtml(input.command || "")}</pre>
           ${result ? `<pre class="terminal output">${escapeHtml(result.content.slice(0, 1200))}</pre>` : ""}
@@ -631,7 +658,7 @@ function renderToolCall(tc, results) {
     case "Edit":
     case "MultiEdit": {
       body = `
-        <div class="tool-block tool-edit">
+        <div class="tool-block tool-edit${errCls}">
           <div class="tool-head">Edit · <code>${escapeHtml(input.file_path || "")}</code></div>
           ${input.old_string ? `<pre class="diff diff-old">- ${escapeHtml(input.old_string.slice(0, 600))}</pre>` : ""}
           ${input.new_string ? `<pre class="diff diff-new">+ ${escapeHtml(input.new_string.slice(0, 600))}</pre>` : ""}
@@ -640,7 +667,7 @@ function renderToolCall(tc, results) {
     }
     case "Write": {
       body = `
-        <div class="tool-block tool-edit">
+        <div class="tool-block tool-edit${errCls}">
           <div class="tool-head">Write · <code>${escapeHtml(input.file_path || "")}</code></div>
           <pre class="diff diff-new">${escapeHtml(String(input.content || "").slice(0, 800))}</pre>
         </div>`;
@@ -648,7 +675,7 @@ function renderToolCall(tc, results) {
     }
     case "Read": {
       body = `
-        <div class="tool-block tool-read">
+        <div class="tool-block tool-read${errCls}">
           <div class="tool-head">Read · <code>${escapeHtml(input.file_path || "")}</code></div>
           ${result ? `<pre class="terminal output">${escapeHtml(result.content.slice(0, 800))}</pre>` : ""}
         </div>`;
@@ -657,8 +684,8 @@ function renderToolCall(tc, results) {
     case "WebFetch":
     case "WebSearch": {
       body = `
-        <div class="tool-block">
-          <div class="tool-head">${tc.name} · ${escapeHtml(input.url || input.query || "")}</div>
+        <div class="tool-block${errCls}">
+          <div class="tool-head">${name} · ${escapeHtml(input.url || input.query || "")}</div>
           ${result ? `<pre class="terminal output">${escapeHtml(result.content.slice(0, 600))}</pre>` : ""}
         </div>`;
       break;
@@ -666,23 +693,20 @@ function renderToolCall(tc, results) {
     case "Task":
     case "Agent": {
       body = `
-        <div class="tool-block">
-          <div class="tool-head">${tc.name} · ${escapeHtml(input.subagent_type || input.description || "")}</div>
+        <div class="tool-block${errCls}">
+          <div class="tool-head">${name} · ${escapeHtml(input.subagent_type || input.description || "")}</div>
           <pre class="diff diff-new">${escapeHtml((input.prompt || "").slice(0, 600))}</pre>
         </div>`;
       break;
     }
     default: {
       body = `
-        <div class="tool-block">
-          <div class="tool-head">${tc.name}</div>
+        <div class="tool-block${errCls}">
+          <div class="tool-head">${name}</div>
           <pre class="terminal">${escapeHtml(JSON.stringify(input).slice(0, 600))}</pre>
           ${result ? `<pre class="terminal output">${escapeHtml(result.content.slice(0, 600))}</pre>` : ""}
         </div>`;
     }
-  }
-  if (result && result.is_error) {
-    return body.replace("tool-block", "tool-block tool-error");
   }
   return body;
 }
@@ -760,11 +784,7 @@ async function pollRecall() {
     for (const ev of recent) {
       const key = `${ev.session_id}::${ev.error_text.slice(0, 80)}`;
       if (state.recall.dismissedKeys.has(key)) continue;
-      // Run recall to find past sessions that fixed something similar.
-      const hits = await invoke("recall", {
-        errorText: ev.error_text,
-        limit: 3,
-      });
+      const hits = await recallCached(ev.error_text, 3);
       // Filter out the current (still-failing) session itself.
       const useful = hits.filter((h) => h.session_id !== ev.session_id);
       if (!useful.length) continue;
@@ -775,6 +795,23 @@ async function pollRecall() {
   } catch (err) {
     // Silent — Qdrant may not be ready yet.
   }
+}
+
+// P2: deduplicate recall calls by error_text within a short TTL so the
+// 12 s polling loop doesn't re-embed the same error over and over.
+async function recallCached(errorText, limit) {
+  const cache = state.recall.cache;
+  const prev = cache.get(errorText);
+  if (prev && Date.now() - prev.ts < RECALL_CACHE_TTL_MS) {
+    return prev.hits;
+  }
+  const hits = await invoke("recall", { errorText, limit });
+  cache.set(errorText, { hits, ts: Date.now() });
+  if (cache.size > RECALL_CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    cache.delete(oldest);
+  }
+  return hits;
 }
 
 function showRecallBanner(ev, hits) {

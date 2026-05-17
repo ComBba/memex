@@ -4,9 +4,12 @@
 //! client + Embedder) and returns `Result<T, String>` so errors can cross the
 //! IPC boundary.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
+use once_cell::sync::Lazy;
 use qdrant_client::Qdrant;
 use tauri::State;
 
@@ -189,16 +192,22 @@ pub async fn collection_info(
 pub async fn refresh_index(
     state: State<'_, AppStateArc>,
     path: Option<PathBuf>,
-) -> Result<usize, String> {
+) -> Result<serde_json::Value, String> {
     let root = path.unwrap_or_else(default_projects_root);
     let sessions = parser::scan_dir(&root).map_err(stringify)?;
+    let total = sessions.len();
     indexer::ensure_collection(&state.qdrant)
         .await
         .map_err(stringify)?;
-    let ok = indexer::bulk_index(&state.qdrant, &state.embedder, &sessions)
+    let report = indexer::bulk_index(&state.qdrant, &state.embedder, &sessions)
         .await
         .map_err(stringify)?;
-    Ok(ok)
+    Ok(serde_json::json!({
+        "indexed": report.indexed,
+        "duplicates_skipped": report.duplicates_skipped,
+        "errors": report.errors,
+        "total_scanned": total,
+    }))
 }
 
 fn default_projects_root() -> PathBuf {
@@ -221,14 +230,26 @@ pub struct RecentError {
     pub seen_at_iso: String,
 }
 
+// P3: per-file (mtime, Option<RecentError>) cache so the 12 s polling tick
+// only re-parses files whose mtime advanced since we last looked. Keyed by
+// canonical path; never grows beyond the live file set so we don't need LRU.
+struct TailCacheEntry {
+    mtime: SystemTime,
+    latest_err: Option<RecentError>,
+}
+
+static TAIL_CACHE: Lazy<Mutex<HashMap<PathBuf, TailCacheEntry>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
 /// Phase 6 polling-style recall trigger. Walks `~/.claude/projects`, finds any
 /// `*.jsonl` modified within `since_seconds`, re-parses, and surfaces the most
 /// recent `tool_result.is_error` (or assistant-text "Error:" line). Frontend
-/// polls every ~10s; on hit it calls `recall(error_text)` and animates the
+/// polls every ~12 s; on hit it calls `recall(error_text)` and animates the
 /// banner.
 ///
 /// We trade real OS file watching for portability — polling is reliable, has
-/// no permission edge cases, and on 80 sessions costs <50 ms per tick.
+/// no permission edge cases, and on 80 sessions costs <50 ms per tick (and
+/// closer to <10 ms once the mtime cache warms up).
 #[tauri::command]
 pub async fn tail_recent_errors(
     path: Option<PathBuf>,
@@ -238,8 +259,7 @@ pub async fn tail_recent_errors(
     use walkdir::WalkDir;
 
     let root = path.unwrap_or_else(default_projects_root);
-    let cutoff = std::time::SystemTime::now()
-        - std::time::Duration::from_secs(since_seconds.unwrap_or(60));
+    let cutoff = SystemTime::now() - std::time::Duration::from_secs(since_seconds.unwrap_or(60));
     let now_iso = Utc::now().to_rfc3339();
     let mut out: Vec<RecentError> = Vec::new();
 
@@ -260,6 +280,28 @@ pub async fn tail_recent_errors(
         if modified < cutoff {
             continue;
         }
+
+        // P3: cache hit — if mtime hasn't advanced, reuse the prior result.
+        let path_buf = p.to_path_buf();
+        let cached = {
+            let cache = TAIL_CACHE.lock().expect("tail cache poisoned");
+            cache.get(&path_buf).and_then(|e| {
+                if e.mtime == modified {
+                    e.latest_err.clone()
+                } else {
+                    None
+                }
+            })
+        };
+        if let Some(prev) = cached {
+            // Refresh seen_at_iso so the frontend treats it as "still active".
+            out.push(RecentError {
+                seen_at_iso: now_iso.clone(),
+                ..prev
+            });
+            continue;
+        }
+
         let Ok(session) = parser::parse_session(p) else { continue };
         let mut latest_err: Option<String> = None;
         for turn in session.turns.iter().rev().take(6) {
@@ -279,14 +321,28 @@ pub async fn tail_recent_errors(
                 }
             }
         }
-        if let Some(err) = latest_err {
-            out.push(RecentError {
-                session_id: session.session_id,
-                project_name: session.project_name.unwrap_or_default(),
-                error_text: err,
-                source_path: p.to_string_lossy().to_string(),
-                seen_at_iso: now_iso.clone(),
-            });
+
+        let entry_err = latest_err.map(|err| RecentError {
+            session_id: session.session_id,
+            project_name: session.project_name.unwrap_or_default(),
+            error_text: err,
+            source_path: p.to_string_lossy().to_string(),
+            seen_at_iso: now_iso.clone(),
+        });
+
+        // Update cache regardless (negative caching matters — files without
+        // errors stay cheap on subsequent ticks).
+        if let Ok(mut cache) = TAIL_CACHE.lock() {
+            cache.insert(
+                path_buf,
+                TailCacheEntry {
+                    mtime: modified,
+                    latest_err: entry_err.clone(),
+                },
+            );
+        }
+        if let Some(ev) = entry_err {
+            out.push(ev);
         }
     }
     Ok(out)
