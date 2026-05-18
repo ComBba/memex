@@ -6,6 +6,7 @@ use std::process::ExitCode;
 
 const CLI_SUBCOMMANDS: &[&str] = &[
     "scan", "search", "lens", "mix", "topology", "recall", "predict", "snapshot",
+    "mcp", "install-mcp",
     "help", "--help", "-h",
 ];
 

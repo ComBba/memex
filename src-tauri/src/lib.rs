@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod commands;
 pub mod indexer;
+pub mod mcp;
 pub mod parser;
 
 use std::sync::Arc;
