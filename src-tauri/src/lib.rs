@@ -3,8 +3,11 @@ pub mod commands;
 pub mod indexer;
 pub mod mcp;
 pub mod parser;
+pub mod watcher;
 
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -23,8 +26,26 @@ pub fn run() {
             // fastembed init lazily on the first command that needs them, so
             // the window can open instantly and the app self-heals if the
             // user starts Qdrant after launching Memex.
-            app.manage::<AppStateArc>(Arc::new(AppState::new()));
+            let app_state: AppStateArc = Arc::new(AppState::new());
+            app.manage::<AppStateArc>(app_state.clone());
             eprintln!("[memex] AppState registered (qdrant + embedder will init on first use)");
+
+            // Background auto-index daemon. Walks ~/.claude/projects every
+            // 60 s, re-indexes any session whose mtime advanced. Emits
+            // `index-updated` so the frontend can flash a chip.
+            let watch_root = default_projects_root();
+            let watch_period = Duration::from_secs(
+                std::env::var("MEMEX_WATCHER_PERIOD_SECS")
+                    .ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(60),
+            );
+            watcher::start_watcher(
+                app_state.clone(),
+                app.handle().clone(),
+                watch_root,
+                watch_period,
+            );
 
             // Tray icon — minimal Open / Snapshot / Quit menu.
             let open_item = MenuItem::with_id(app, "open", "Open Memex", true, None::<&str>)?;
@@ -78,4 +99,15 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn default_projects_root() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        let mut p = PathBuf::from(home);
+        p.push(".claude");
+        p.push("projects");
+        p
+    } else {
+        PathBuf::from(".claude/projects")
+    }
 }

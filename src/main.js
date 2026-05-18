@@ -3,6 +3,7 @@
 // so we can stay plain ESM without a build step.
 
 const { invoke } = window.__TAURI__.core;
+const tauriEvent = window.__TAURI__.event;
 
 const LENSES = ["content", "tool", "path", "error", "code"];
 
@@ -51,9 +52,58 @@ document.addEventListener("DOMContentLoaded", async () => {
   // even before Qdrant comes up, giving the user something to look at
   // immediately.
   loadInitialStack();
+  attachWatcherListener();
   await pollUntilReady();
   startRecallPolling();
 });
+
+// ---------------------------------------------------------------------------
+// Background watcher → "Re-indexed N session(s)" fade-in chip + topbar count
+// ---------------------------------------------------------------------------
+
+async function attachWatcherListener() {
+  if (!tauriEvent || typeof tauriEvent.listen !== "function") return;
+  await tauriEvent.listen("index-updated", (event) => {
+    const stats = event.payload || {};
+    const reindexed = (stats.reindexed || 0) + (stats.new || 0);
+    if (reindexed <= 0) return;
+    // Bump the topbar count optimistically; the next pollUntilReady or
+    // collection_info refresh will reconcile any drift.
+    state.collectionPoints += stats.new || 0;
+    const countEl = document.getElementById("collection-info");
+    if (countEl && state.collectionPoints > 0) {
+      countEl.textContent = `· ${state.collectionPoints} sessions`;
+    }
+    const label = reindexed === 1
+      ? "Re-indexed 1 session"
+      : `Re-indexed ${reindexed} sessions`;
+    showWatcherChip(label);
+    // Refresh the stack so the just-touched session jumps to the top.
+    loadInitialStack();
+  });
+}
+
+let _watcherChipTimer = null;
+function showWatcherChip(text) {
+  let chip = document.getElementById("watcher-chip");
+  if (!chip) {
+    chip = document.createElement("span");
+    chip.id = "watcher-chip";
+    chip.className = "watcher-chip";
+    const status = document.getElementById("status-text");
+    if (status && status.parentElement) {
+      status.parentElement.insertBefore(chip, status.nextSibling);
+    } else {
+      document.body.appendChild(chip);
+    }
+  }
+  chip.textContent = text;
+  chip.classList.add("visible");
+  if (_watcherChipTimer) clearTimeout(_watcherChipTimer);
+  _watcherChipTimer = setTimeout(() => {
+    chip.classList.remove("visible");
+  }, 4000);
+}
 
 // ---------------------------------------------------------------------------
 // Time Machine stack — initial view + arrow/wheel nav
