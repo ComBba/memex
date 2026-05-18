@@ -54,6 +54,13 @@ const RECALL_DEBOUNCE: Duration = Duration::from_secs(60 * 60);
 /// On a cold start, this prevents a flood of recall pops for old errors.
 const FRESH_ERROR_WINDOW: Duration = Duration::from_secs(60 * 5);
 
+/// Predict-based notification threshold — top-1 must have frequency > 0.7
+/// (i.e., past-you took this action in >70% of comparable conversational
+/// positions) before we'll interrupt the user.
+const PREDICT_FREQ_THRESHOLD: f32 = 0.7;
+/// Debounce window per (session_id, predicted_tool) — 30 min.
+const PREDICT_DEBOUNCE: Duration = Duration::from_secs(60 * 30);
+
 /// Spawn the background watcher. Returns immediately; the task runs until the
 /// process exits.
 pub fn start_watcher(
@@ -65,6 +72,8 @@ pub fn start_watcher(
     let mtimes: Arc<AsyncMutex<HashMap<PathBuf, SystemTime>>> =
         Arc::new(AsyncMutex::new(HashMap::new()));
     let debounce: Arc<AsyncMutex<HashMap<(String, String), SystemTime>>> =
+        Arc::new(AsyncMutex::new(HashMap::new()));
+    let predict_debounce: Arc<AsyncMutex<HashMap<(String, String), SystemTime>>> =
         Arc::new(AsyncMutex::new(HashMap::new()));
 
     tokio::spawn(async move {
@@ -90,7 +99,7 @@ pub fn start_watcher(
             }
 
             let start = std::time::Instant::now();
-            let stats = match tick(&state, &app, &root, &mtimes, &debounce).await {
+            let stats = match tick(&state, &app, &root, &mtimes, &debounce, &predict_debounce).await {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("[memex] watcher tick failed: {e:#}");
@@ -146,6 +155,7 @@ async fn tick(
     root: &Path,
     mtimes: &Arc<AsyncMutex<HashMap<PathBuf, SystemTime>>>,
     debounce: &Arc<AsyncMutex<HashMap<(String, String), SystemTime>>>,
+    predict_debounce: &Arc<AsyncMutex<HashMap<(String, String), SystemTime>>>,
 ) -> anyhow::Result<TickStats> {
     let mut stats = TickStats::default();
     let started = std::time::Instant::now();
@@ -240,13 +250,22 @@ async fn tick(
         }
     }
 
-    // 5. Proactive recall — for each hot session, check the latest error.
+    // 5. Proactive recall + predict — for each hot session, check the
+    //    latest error and the predicted next-action.
     for session in hot {
         match maybe_fire_recall(&qdrant, &embedder, app, debounce, &session).await {
             Ok(true) => stats.notifications_fired += 1,
             Ok(false) => {}
             Err(e) => eprintln!(
                 "[memex] watcher recall failed for {}: {:#}",
+                session.session_id, e
+            ),
+        }
+        match maybe_fire_predict(&qdrant, &embedder, app, predict_debounce, &session).await {
+            Ok(true) => stats.notifications_fired += 1,
+            Ok(false) => {}
+            Err(e) => eprintln!(
+                "[memex] watcher predict failed for {}: {:#}",
                 session.session_id, e
             ),
         }
@@ -336,6 +355,99 @@ async fn maybe_fire_recall(
                 "ai_title": h.ai_title,
                 "score": h.score,
             })).collect::<Vec<_>>()
+        }),
+    );
+
+    Ok(true)
+}
+
+/// Predict-based notification (IMPL-MCP T3.7) — "past-you ran &lt;tool&gt;
+/// next 80 % of times". Returns `Ok(true)` if a notification was fired.
+///
+/// Conditions:
+/// 1. The live session has at least 3 turns (we need a conversational
+///    position to neighbor-match against).
+/// 2. `predict_next_actions(...)` returns at least one prediction with
+///    `frequency > 0.7`.
+/// 3. The live session has NOT YET called that tool — i.e., the prediction
+///    is genuinely a *next* step, not something past-you and present-you
+///    already did.
+async fn maybe_fire_predict(
+    qdrant: &qdrant_client::Qdrant,
+    embedder: &indexer::Embedder,
+    app: &AppHandle,
+    debounce: &Arc<AsyncMutex<HashMap<(String, String), SystemTime>>>,
+    session: &Session,
+) -> anyhow::Result<bool> {
+    if session.turns.len() < 3 {
+        return Ok(false);
+    }
+
+    let ctx = indexer::predict_next_actions(qdrant, embedder, &session.session_id, 3, 3, 8).await?;
+    let Some(top) = ctx.predictions.first() else {
+        return Ok(false);
+    };
+    if top.frequency <= PREDICT_FREQ_THRESHOLD {
+        return Ok(false);
+    }
+
+    // Filter: the live session must not have already called this tool.
+    let already_called = session
+        .turns
+        .iter()
+        .flat_map(|t| t.tool_calls.iter())
+        .any(|tc| tc.name.eq_ignore_ascii_case(&top.tool_name));
+    if already_called {
+        return Ok(false);
+    }
+
+    // Debounce: 30 min per (session_id, tool_name).
+    let key = (session.session_id.clone(), top.tool_name.clone());
+    {
+        let mut g = debounce.lock().await;
+        let now = SystemTime::now();
+        if let Some(prev) = g.get(&key) {
+            if now.duration_since(*prev).map(|d| d < PREDICT_DEBOUNCE).unwrap_or(false) {
+                return Ok(false);
+            }
+        }
+        g.insert(key, now);
+    }
+
+    let pct = (top.frequency * 100.0).round() as i32;
+    let title = "Memex · past-you would do this next";
+    let body = format!(
+        "{}  ·  {} ran {} next {}% of times",
+        session.project_name.as_deref().unwrap_or("?"),
+        top.from_session_project,
+        top.tool_name,
+        pct
+    );
+    if let Err(e) = app
+        .notification()
+        .builder()
+        .title(title)
+        .body(&body)
+        .show()
+    {
+        eprintln!("[memex] predict notification show failed: {e:#}");
+    }
+
+    let _ = app.emit(
+        "open-replay-from-notification",
+        json!({
+            "from_session_id": session.session_id,
+            "from_turn_index": session.turns.len().saturating_sub(1),
+            "from_project": session.project_name.clone().unwrap_or_default(),
+            "kind": "predict",
+            "session_id": top.from_session_id,
+            "turn_index": top.from_turn_index,
+            "match_project": top.from_session_project,
+            "match_title": top.tool_name,
+            "match_score": top.confidence,
+            "predicted_tool": top.tool_name,
+            "predicted_freq": top.frequency,
+            "example_input": top.example_input_summary,
         }),
     );
 
