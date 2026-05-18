@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Memex × Qdrant SOTA — 10-Person Panel Plan (v1 · consensus)</title>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg-elev: #131826;
+    --bg-elev-2: #1a2238;
+    --border: #1f2940;
+    --border-strong: #2a3658;
+    --fg: #e8eaf1;
+    --fg-muted: #8b95b3;
+    --fg-dim: #5d678a;
+    --accent: #dc382d;
+    --accent-2: #bf5af2;
+    --accent-3: #30d158;
+    --accent-4: #ffd60a;
+    --accent-5: #64d2ff;
+    --gradient-hero: linear-gradient(135deg, #dc382d 0%, #bf5af2 55%, #64d2ff 100%);
+    --shadow-card: 0 8px 32px rgba(0,0,0,.4), 0 0 0 1px var(--border);
+    --shadow-glow: 0 0 24px rgba(220, 56, 45, .25);
+    --mono: "JetBrains Mono","SF Mono","Fira Code",Menlo,Consolas,monospace;
+    --sans: -apple-system,BlinkMacSystemFont,"Inter","SF Pro Text","Pretendard",sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, rgba(191,90,242,.10), transparent 60%),
+      radial-gradient(1000px 500px at 100% 20%, rgba(220,56,45,.10), transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 15.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection { background: rgba(220,56,45,.35); color: #fff; }
+
+  .shell { display: grid; grid-template-columns: 250px 1fr; max-width: 1400px; margin: 0 auto; }
+  @media (max-width: 960px) { .shell { grid-template-columns: 1fr; } .toc { display: none; } }
+
+  .toc {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 28px 18px; border-right: 1px solid var(--border); font-size: 13.5px;
+  }
+  .toc .brand { font-weight: 700; letter-spacing: -.02em; margin-bottom: 8px; color: var(--fg); }
+  .toc .brand span { color: var(--accent); }
+  .toc .ver { font-family: var(--mono); font-size: 11px; color: var(--accent-3); margin-bottom: 18px; }
+  .toc ol { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+  .toc li { counter-increment: toc; margin: 7px 0; }
+  .toc a { color: var(--fg-muted); text-decoration: none; display: block; padding: 5px 10px; border-radius: 6px; transition: all .15s; border-left: 2px solid transparent; }
+  .toc a:hover { color: var(--fg); background: var(--bg-elev); border-left-color: var(--accent); }
+  .toc a::before { content: "§" counter(toc) ". "; color: var(--fg-dim); }
+  .toc .toc-sub { padding-left: 18px; font-size: 12.5px; margin: 4px 0; }
+  .toc .toc-sub a::before { content: "·  "; }
+
+  .main { padding: 36px 56px 120px; max-width: 1080px; }
+  @media (max-width: 720px) { .main { padding: 24px 18px 80px; } }
+
+  .hero {
+    margin: 8px 0 56px; padding: 44px 40px 40px; border-radius: 18px;
+    background: linear-gradient(180deg, rgba(220,56,45,.08), rgba(191,90,242,.06) 50%, transparent);
+    border: 1px solid var(--border-strong); position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,.35), transparent),
+      radial-gradient(1px 1px at 70% 60%, rgba(255,255,255,.25), transparent),
+      radial-gradient(1.5px 1.5px at 40% 80%, rgba(191,90,242,.4), transparent),
+      radial-gradient(1px 1px at 85% 25%, rgba(100,210,255,.3), transparent);
+    background-size: 320px 320px; opacity: .6; pointer-events: none;
+  }
+  .hero h1 {
+    margin: 0 0 12px; font-size: 42px; letter-spacing: -.025em; font-weight: 800; line-height: 1.1;
+    background: var(--gradient-hero);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero .ver-tag {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    background: rgba(48,209,88,.15); color: var(--accent-3);
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    margin-bottom: 10px; letter-spacing: .04em;
+  }
+  .hero .sub { color: var(--fg-muted); font-size: 17px; max-width: 720px; }
+  .hero .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    font-size: 12px; color: var(--fg-muted); font-family: var(--mono);
+  }
+  .pill.red { color: var(--accent); border-color: rgba(220,56,45,.4); }
+  .pill.green { color: var(--accent-3); border-color: rgba(48,209,88,.4); }
+  .pill.purple { color: var(--accent-2); border-color: rgba(191,90,242,.4); }
+  .pill.yellow { color: var(--accent-4); border-color: rgba(255,214,10,.4); }
+  .pill.blue { color: var(--accent-5); border-color: rgba(100,210,255,.4); }
+
+  section { margin: 56px 0; scroll-margin-top: 24px; }
+  h2 { font-size: 28px; letter-spacing: -.02em; margin: 0 0 6px; display: flex; align-items: baseline; gap: 14px; }
+  h2 .num { font-family: var(--mono); font-size: 16px; color: var(--accent); font-weight: 500; letter-spacing: 0; }
+  h3 { font-size: 19px; margin: 32px 0 10px; letter-spacing: -.01em; }
+  h4 { font-size: 15px; margin: 20px 0 6px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  p { margin: 10px 0; }
+  .lede { color: var(--fg-muted); margin: 0 0 28px; max-width: 760px; }
+  strong { color: #fff; }
+  em { color: var(--fg-muted); }
+
+  a { color: var(--accent-5); text-decoration: none; border-bottom: 1px solid rgba(100,210,255,.3); }
+  a:hover { color: #fff; border-color: var(--accent-5); }
+
+  code, kbd { font-family: var(--mono); font-size: 13px; background: var(--bg-elev); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); }
+  pre {
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: 16px 18px; overflow-x: auto;
+    font-family: var(--mono); font-size: 13px; line-height: 1.55; margin: 14px 0;
+  }
+  pre code { background: transparent; border: 0; padding: 0; }
+  blockquote {
+    margin: 14px 0; padding: 12px 18px; border-left: 3px solid var(--accent-2);
+    background: rgba(191,90,242,.06); border-radius: 0 8px 8px 0; color: var(--fg);
+  }
+  blockquote .src { display: block; margin-top: 6px; font-size: 12px; color: var(--fg-muted); font-family: var(--mono); }
+
+  .grid { display: grid; gap: 14px; }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 880px) { .grid-2, .grid-3 { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 18px 16px; transition: transform .18s, border-color .18s, box-shadow .18s;
+  }
+  .card:hover { transform: translateY(-2px); border-color: var(--border-strong); box-shadow: var(--shadow-card); }
+  .card h4 { margin: 0 0 6px; color: var(--fg); font-size: 14px; text-transform: none; letter-spacing: 0; font-weight: 600; }
+
+  .panel-team-header {
+    display: flex; align-items: center; gap: 16px; margin: 28px 0 12px;
+    padding: 10px 14px; border-radius: 10px;
+    background: linear-gradient(90deg, rgba(220,56,45,.08), transparent 80%);
+    border: 1px solid var(--border);
+  }
+  .panel-team-header.b { background: linear-gradient(90deg, rgba(100,210,255,.08), transparent 80%); }
+  .panel-team-header h3 { margin: 0; }
+  .panel-team-header .tag { font-family: var(--mono); font-size: 12px; padding: 2px 8px; border-radius: 4px; background: rgba(220,56,45,.15); color: var(--accent); }
+  .panel-team-header.b .tag { background: rgba(100,210,255,.15); color: var(--accent-5); }
+
+  .persona {
+    display: grid; grid-template-columns: 56px 1fr; gap: 14px;
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+  }
+  .persona .avatar {
+    width: 48px; height: 48px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 17px; color: #fff; font-family: var(--mono); letter-spacing: 0;
+  }
+  .persona .name { font-weight: 600; color: #fff; font-size: 15px; }
+  .persona .role { font-size: 12px; color: var(--fg-muted); font-family: var(--mono); margin-bottom: 6px; }
+  .persona .quote { font-size: 13.5px; color: var(--fg); border-left: 2px solid var(--border-strong); padding-left: 10px; margin-top: 6px; font-style: italic; }
+  .persona .duties { font-size: 12.5px; color: var(--fg-muted); margin-top: 4px; }
+  .persona.lead { border-color: rgba(220,56,45,.4); box-shadow: 0 0 0 1px rgba(220,56,45,.15); }
+  .persona.lead.b { border-color: rgba(100,210,255,.4); box-shadow: 0 0 0 1px rgba(100,210,255,.15); }
+  .persona.critic { border-style: dashed; border-color: rgba(255,214,10,.4); }
+  .persona .badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10.5px; font-family: var(--mono); font-weight: 600; }
+  .persona .badge.lead { background: rgba(220,56,45,.18); color: var(--accent); }
+  .persona .badge.lead-b { background: rgba(100,210,255,.18); color: var(--accent-5); }
+  .persona .badge.critic { background: rgba(255,214,10,.18); color: var(--accent-4); }
+
+  .kick {
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px 22px; margin: 14px 0; position: relative;
+  }
+  .kick::before {
+    content: attr(data-num); position: absolute; top: -10px; left: 18px;
+    background: var(--bg); padding: 0 8px; color: var(--accent);
+    font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .05em;
+  }
+  .kick h4 { margin: 0 0 6px; color: #fff; font-size: 16px; text-transform: none; letter-spacing: 0; font-weight: 600; }
+  .kick .impact-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .kick .impact { font-family: var(--mono); font-size: 11.5px; color: var(--fg-muted); }
+  .kick .impact b { color: #fff; font-weight: 600; }
+
+  .timeline { display: grid; grid-template-columns: 80px 1fr 1fr 100px; gap: 0; margin-top: 14px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .timeline > div { padding: 10px 14px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); font-size: 13px; }
+  .timeline > div:nth-child(4n) { border-right: 0; }
+  .timeline .h { background: var(--bg-elev-2); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-muted); }
+  .timeline .day { font-family: var(--mono); color: var(--accent); font-weight: 600; }
+  .timeline .gate { font-family: var(--mono); font-size: 11.5px; }
+  .timeline .gate.go { color: var(--accent-3); }
+  .timeline .gate.amber { color: var(--accent-4); }
+  .timeline .gate.freeze { color: var(--accent-5); }
+  @media (max-width: 720px) {
+    .timeline { grid-template-columns: 60px 1fr; }
+    .timeline .h:nth-child(3), .timeline .h:nth-child(4),
+    .timeline > div:nth-child(4n-1), .timeline > div:nth-child(4n) { display: none; }
+  }
+
+  table.risk { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 14px 0; }
+  table.risk th, table.risk td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.risk th { color: var(--fg-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; background: var(--bg-elev); }
+  table.risk td.sev { font-family: var(--mono); font-weight: 600; }
+  table.risk td.sev.high { color: var(--accent); }
+  table.risk td.sev.med { color: var(--accent-4); }
+  table.risk td.sev.low { color: var(--accent-3); }
+
+  .mockup {
+    background: #060912; border: 1px solid var(--border-strong); border-radius: 12px;
+    padding: 16px 18px; margin: 12px 0;
+    font-family: var(--mono); font-size: 12px; line-height: 1.45;
+    color: var(--fg-muted); white-space: pre; overflow-x: auto; position: relative;
+  }
+  .mockup::before { content: "·  ·  ·"; position: absolute; top: 8px; left: 12px; letter-spacing: .25em; color: var(--fg-dim); }
+  .mockup-body { padding-top: 18px; }
+  .mockup .accent { color: var(--accent); }
+  .mockup .accent-2 { color: var(--accent-2); }
+  .mockup .accent-3 { color: var(--accent-3); }
+  .mockup .accent-4 { color: var(--accent-4); }
+  .mockup .accent-5 { color: var(--accent-5); }
+  .mockup .dim { color: var(--fg-dim); }
+  .mockup .fg { color: var(--fg); }
+
+  .arch-wrap { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px; padding: 18px; overflow-x: auto; }
+
+  .sources { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 13px; }
+  @media (max-width: 720px) { .sources { grid-template-columns: 1fr; } }
+  .sources .src-card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .sources .src-card .label { font-family: var(--mono); font-size: 11px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .04em; }
+  .sources .src-card a { font-size: 13px; border: 0; }
+
+  hr { border: 0; border-top: 1px solid var(--border); margin: 32px 0; }
+  .footnote { font-size: 12px; color: var(--fg-dim); font-family: var(--mono); margin-top: 6px; }
+
+  .dissent {
+    margin: 16px 0; padding: 14px 18px 14px 16px;
+    background: rgba(255,214,10,.06); border: 1px dashed rgba(255,214,10,.4);
+    border-radius: 10px; font-size: 14px;
+  }
+  .dissent .who { font-family: var(--mono); font-size: 11.5px; color: var(--accent-4); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="brand">Memex × <span>Qdrant</span> SOTA</div>
+    <div class="ver">v1 · consensus mode</div>
+    <ol>
+      <li><a href="#s1">10-Person Panel</a>
+        <ol class="toc-sub">
+          <li><a href="#s1a">Team A · Strategy</a></li>
+          <li><a href="#s1b">Team B · Engineering</a></li>
+          <li><a href="#s1c">Cross-team votes</a></li>
+        </ol>
+      </li>
+      <li><a href="#s2">Tech Kicks · 10</a></li>
+      <li><a href="#s3">Visual WOW · 5</a></li>
+      <li><a href="#s4">Architecture (target)</a></li>
+      <li><a href="#s5">14-day Roadmap</a></li>
+      <li><a href="#s6">Risk Register</a></li>
+      <li><a href="#s7">Demo Script</a></li>
+      <li><a href="#s8">Sources</a></li>
+    </ol>
+  </nav>
+
+  <main class="main">
+    <header class="hero">
+      <span class="ver-tag">v1 · CONSENSUS MODE · 2026-05-18</span>
+      <h1>Memex × Qdrant SOTA<br/>10-Person Panel Plan</h1>
+      <p class="sub">14일 안에 Qdrant 1.18의 최신 기능 끝까지 — multi-stage Query API, 후기상호작용 MaxSim, 서버사이드 BM25, MMR, 양자화, 서명된 스냅샷 — 을 Memex의 7-surface UX 위에 얹어 VSD 2026 "Think Outside the Bot"을 잡는다. <b>합의 우선</b> · 기술 킥 10개 · 시각 와우 5개.</p>
+      <div class="meta">
+        <span class="pill red">VSD 2026 · 2026-06-01</span>
+        <span class="pill purple">10-person panel</span>
+        <span class="pill blue">5 codebase + 5 research dossiers</span>
+        <span class="pill green">No LLM at runtime · invariant</span>
+        <span class="pill yellow">Remote: ComBba/memex only</span>
+      </div>
+    </header>
+
+    <section id="s1">
+      <h2><span class="num">§1</span> 10-Person Panel</h2>
+      <p class="lede">2개 팀 × 5명 — 각 팀에 팀장 1명, 비판자 1명, 실무 3명. <b>Cross-team vote 6건이 10/10 만장일치 통과.</b> 비판자 dissent는 노란 카드로 본문에 보존.</p>
+
+      <h3 id="s1a">Team A · Strategy &amp; Vision</h3>
+      <div class="panel-team-header">
+        <span class="tag">A</span>
+        <div><h3 style="margin:0">Strategy</h3>
+          <div class="footnote">제품 narrative · UX motion · 데모 스토리 · 룰/마감 · VC 시점 비판</div>
+        </div>
+      </div>
+      <div class="grid grid-2">
+        <article class="persona lead">
+          <div class="avatar" style="background:linear-gradient(135deg,#dc382d,#f06b62)">EP</div>
+          <div>
+            <div class="name">Eunha Park <span class="badge lead">LEAD</span></div>
+            <div class="role">Head of Product Strategy · A1</div>
+            <div class="duties">VSD 2026 win-condition, 7-surface 가치 narrative, panel chair</div>
+            <div class="quote">"심사위원이 데모 60초 안에 '잠깐 이거 챗봇이 아닌데?'를 느끼지 못하면 진다."</div>
+          </div>
+        </article>
+        <article class="persona critic">
+          <div class="avatar" style="background:linear-gradient(135deg,#ffd60a,#a07c00)">MR</div>
+          <div>
+            <div class="name">Marcus Reed <span class="badge critic">DEVIL</span></div>
+            <div class="role">Devil's Advocate · ex-VC · A2</div>
+            <div class="duties">모든 제안에 KPI 반론, "wow처럼 보이나 실제로 wow한가" 검증</div>
+            <div class="quote">"ColBERT-quality rerank가 데모 화면에서 시청자에게 보이지 않으면 비용이다."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#bf5af2,#7d3aa3)">LC</div>
+          <div>
+            <div class="name">Liana Cho</div>
+            <div class="role">UX Architect · A3</div>
+            <div class="duties">7-surface 시각 일관성, motion token system, 모션 60fps gate</div>
+            <div class="quote">"Lens contribution bar는 살아있어야 한다."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#64d2ff,#3a8ab3)">DY</div>
+          <div>
+            <div class="name">Daichi Yamamoto</div>
+            <div class="role">Demo Storyteller · A4</div>
+            <div class="duties">≤3-min 데모 영상 시나리오, narrative arc</div>
+            <div class="quote">"1945 Bush 인용 → 카드 fly-in → topology zoom → recall banner. 60초에 thesis 박는다."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#30d158,#1f8c3c)">SL</div>
+          <div>
+            <div class="name">Sara Lindqvist</div>
+            <div class="role">Hackathon Compliance Officer · A5</div>
+            <div class="duties">룰, 마감, Google Form, license, public repo 상태</div>
+            <div class="quote">"23:59 UTC 2026-06-01. 그 외는 D-2 이후 손대지 않는다."</div>
+          </div>
+        </article>
+      </div>
+
+      <h3 id="s1b">Team B · SOTA Execution</h3>
+      <div class="panel-team-header b">
+        <span class="tag">B</span>
+        <div><h3 style="margin:0">Engineering</h3>
+          <div class="footnote">Rust 백엔드 · 검색 품질 · 프론트 모션 · 성능/보안 critic</div>
+        </div>
+      </div>
+      <div class="grid grid-2">
+        <article class="persona lead b">
+          <div class="avatar" style="background:linear-gradient(135deg,#64d2ff,#3a8ab3)">HT</div>
+          <div>
+            <div class="name">Hiroshi Tanaka <span class="badge lead-b">LEAD</span></div>
+            <div class="role">Principal Engineer · B1</div>
+            <div class="duties">Qdrant 1.18 SOTA 통합 총괄, invariant 수호자</div>
+            <div class="quote">"<code>lens_search</code>를 multi-stage Query API로 옮긴다. 5 round-trip → 1."</div>
+          </div>
+        </article>
+        <article class="persona critic">
+          <div class="avatar" style="background:linear-gradient(135deg,#ffd60a,#a07c00)">AK</div>
+          <div>
+            <div class="name">Aisha Khan <span class="badge critic">CRITIC</span></div>
+            <div class="role">Performance &amp; Security Critic · B2</div>
+            <div class="duties">SEC-002/003/004 차단, 성능 회귀 거부</div>
+            <div class="quote">"SEC-003 path containment 없으면 ship 금지."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#dc382d,#f06b62)">FW</div>
+          <div>
+            <div class="name">Felix Wagner</div>
+            <div class="role">Rust Backend Lead · B3</div>
+            <div class="duties"><code>indexer.rs</code> 모듈 분할, 6th vector 통합</div>
+            <div class="quote">"schema 변경은 새 collection으로. dual-write feature flag. 롤백 가능."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#bf5af2,#7d3aa3)">PS</div>
+          <div>
+            <div class="name">Priya Subramaniam</div>
+            <div class="role">Search Quality Lead · B4</div>
+            <div class="duties">BM25 sparse, late-interaction rerank, RRF/MMR</div>
+            <div class="quote">"path에 BM25 더하면 MRR이 눈에 띄게 오른다. 데모의 가장 강한 wow."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#30d158,#1f8c3c)">MS</div>
+          <div>
+            <div class="name">Min-jae Seo</div>
+            <div class="role">Frontend WOW Engineer · B5</div>
+            <div class="duties">Time Machine motion, Topology gateway, Lens live contribution</div>
+            <div class="quote">"WebGL particle 금지. three.js 기본 + 의도된 모션이 더 강력하다."</div>
+          </div>
+        </article>
+      </div>
+
+      <h3 id="s1c">Cross-team votes (10 패널 합의)</h3>
+      <p>아래 6개 결정은 10명 전원이 동의한 항목이다.</p>
+      <ol>
+        <li><b>Vote-1 · Adopt Multi-stage Query API</b> — 10/10. lens_search를 서버사이드 prefetch + RRF로.</li>
+        <li><b>Vote-2 · Adopt late-interaction MaxSim with same BGE-small</b> — 10/10. 6번째 named vector <code>content_late</code>.</li>
+        <li><b>Vote-3 · Adopt server-side BM25 sparse on path + tool</b> — 10/10.</li>
+        <li><b>Vote-4 · Fix SEC-003/004 before any new feature ships</b> — 10/10. Aisha hold권.</li>
+        <li><b>Vote-5 · Cap demo at 3 minutes</b> — 10/10.</li>
+        <li><b>Vote-6 · Remote target: github.com/ComBba/memex only</b> — 10/10.</li>
+      </ol>
+
+      <div class="dissent">
+        <div class="who">Dissent · Marcus Reed (A2)</div>
+        Vote-2 (late-interaction)는 통과시켰지만 <b>측정 가능한 데모 효과가 없으면 D-7에 빼는 조건부 통과</b>다. nDCG@10이 dense-only 대비 +15% 이상 나오는 eval 결과를 D-8까지 보여라.
+      </div>
+      <div class="dissent">
+        <div class="who">Dissent · Aisha Khan (B2)</div>
+        Vote-3 (BM25 sparse) — fine. <b>하지만 collection 재생성을 D-3 이전에 끝내고 D-3 freeze 이후엔 schema에 손도 대지 않는다.</b>
+      </div>
+    </section>
+
+    <section id="s2">
+      <h2><span class="num">§2</span> Tech Kicks · Qdrant SOTA의 끝</h2>
+      <p class="lede">Qdrant 1.18.0 (2026-05-11 출시)의 최신 기능을 Memex의 invariant 안에서 끝까지 끌어 쓴다.</p>
+
+      <article class="kick" data-num="KICK 01">
+        <h4>Single-call Multi-stage Query API + RRF</h4>
+        <p>현재 <code>lens_search</code>는 5개의 parallel cosine query (<code>indexer.rs:539-615</code>). 이걸 Qdrant 1.10+ Query API의 <code>prefetch</code> + <code>fusion: rrf</code>로 옮긴다.</p>
+        <pre><code>{
+  "prefetch": [
+    { "using": "content",      "query": &lt;dense&gt;, "limit": 50 },
+    { "using": "path_sparse",  "query": &lt;BM25&gt;, "limit": 50 },
+    { "using": "tool",         "query": &lt;dense&gt;, "limit": 50 },
+    { "using": "error",        "query": &lt;dense&gt;, "limit": 50 }
+  ],
+  "query": { "fusion": "rrf" }, "limit": 20
+}</code></pre>
+        <div class="impact-row">
+          <span class="impact"><b>Round-trips:</b> 5 → 1</span>
+          <span class="impact"><b>Effort:</b> ~6h</span>
+          <span class="impact"><b>Sources:</b> research/01 · research/04 §6</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KICK 02">
+        <h4>6번째 named vector <code>content_late</code> — late-interaction MaxSim</h4>
+        <p>같은 BGE-small token-level 출력을 multivector point로. 새 모델 0.</p>
+        <blockquote>"Late interaction models like ColBERT preserve token-level embeddings and compute MaxSim at query time."
+          <span class="src">research/02 · qdrant.tech/articles/late-interaction-models/</span></blockquote>
+        <div class="impact-row">
+          <span class="impact"><b>nDCG@10 target:</b> +15% [eval gate]</span>
+          <span class="impact"><b>Storage:</b> +115 MB at N=10k</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KICK 03">
+        <h4>Server-side BM25 sparse on <code>path</code> &amp; <code>tool</code></h4>
+        <p>Qdrant 1.15.2+ server-side tokenize. fastembed-rs 의존 없음.</p>
+        <div class="impact-row">
+          <span class="impact"><b>MRR target:</b> +30%</span>
+          <span class="impact"><b>Effort:</b> ~3h</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KICK 04">
+        <h4>MMR diversification + Relevance Feedback</h4>
+        <p>VSD brief "recommendation" 직격. Lens 결과에 <code>diversity=0.4</code>, Mix &amp; Match에 👍/👎.</p>
+      </article>
+
+      <article class="kick" data-num="KICK 05">
+        <h4>Scalar quantization + signed snapshots</h4>
+        <p>6벡터 SQ → 4× 압축. Snapshot envelope에 SHA-256 + issuer.</p>
+      </article>
+
+      <article class="kick" data-num="KICK 06">
+        <h4>Async ONNX (<code>spawn_blocking</code>) + cross-session embed batch=32</h4>
+        <p>Embedder Mutex 해소. Cold scan 3-4× 가속.</p>
+        <div class="impact-row">
+          <span class="impact"><b>Sources:</b> analysis/05 QW-1 · research/05 §11</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KICK 07-10">
+        <h4>나머지 4 SOTA 항목</h4>
+        <ul>
+          <li><b>K7 · Topology insights cache</b> — Topology N=10k 17 min → 200 ms.</li>
+          <li><b>K8 · LRU for Predict pivot parse</b> — 300-900 ms → 50 ms warm.</li>
+          <li><b>K9 · Payload index on <code>schema_version</code></b>.</li>
+          <li><b>K10 · MUVERA-when-available</b> — Qdrant 1.18+ GA되면 활성화.</li>
+        </ul>
+      </article>
+
+      <div class="dissent">
+        <div class="who">Dissent · Aisha Khan (B2)</div>
+        <b>KICK 02 (late-interaction)</b>의 token 추출 경로가 noisy하면 nDCG 떨어진다. D-10까지 A/B 측정, 둘 다 dense-only 대비 무익하면 K2 잠근다.
+      </div>
+      <div class="dissent">
+        <div class="who">Dissent · Marcus Reed (A2)</div>
+        <b>KICK 04의 Relevance Feedback</b> — UX는 좋은데 데모 3분 안에 시청자가 👍/👎 누르는 장면이 등장하지 못하면 그 비용 만큼 영상 polish에 돌리는 게 낫다.
+      </div>
+    </section>
+
+    <section id="s3">
+      <h2><span class="num">§3</span> Visual WOW — 5개 프로토타입</h2>
+      <p class="lede">기술 킥이 비싸도 시청자에게 보이지 않으면 0점이다. 5 surface는 60fps 목표, 새 dependency 없이.</p>
+
+      <h3>WOW-1 · Time Machine 2.0 — Heat Trail</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌──────────────────────────── Memex ────────────────────────────┐</span>
+<span class="dim">│</span>          <span class="accent-2">╭──────────────╮</span>                                     <span class="dim">│</span>
+<span class="dim">│</span>          <span class="accent-2">│ #80  today    │</span> <span class="accent-4">∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿</span>             <span class="dim">│</span>
+<span class="dim">│</span>          <span class="accent-2">╰──────────────╯</span>                       <span class="accent-4">∿∿∿∿</span>          <span class="dim">│</span>
+<span class="dim">│</span>            <span class="dim">│ #79  yesterday</span> <span class="accent">●━━━━━━━━━━━━━━━━━━━━━●</span>             <span class="dim">│</span>
+<span class="dim">│</span>            <span class="dim">╰──────────────╯</span>     <span class="accent">sim 0.93 · content+code</span>     <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent-3">↑↓</span> time-travel    <span class="accent-3">⏎</span> open   <span class="accent-3">wheel</span> scroll   <span class="accent-3">⌘K</span> lens   <span class="dim">│</span>
+<span class="dim">└──────────────────────────────────────────────────────────────┘</span></div></div>
+
+      <h3>WOW-2 · Topology Galaxy — Gateway Nodes</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌────────────────── Topology Galaxy ──────────────────┐</span>
+<span class="dim">│</span>     <span class="accent-3">●●●</span>                                  <span class="accent-5">●●</span>     <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent-3">●● ●●</span>   <span class="accent-2">═══════════════════</span>      <span class="accent-5">●●●●●</span>      <span class="dim">│</span>
+<span class="dim">│</span>      project-marketing                project-yc     <span class="dim">│</span>
+<span class="dim">│</span>                  <span class="accent-4">╭─── GAP ───╮</span>                      <span class="dim">│</span>
+<span class="dim">│</span>                  <span class="accent-4">│ ↔ redesign │</span>                      <span class="dim">│</span>
+<span class="dim">│</span>                  <span class="accent-4">│ sim 0.97   │</span>                      <span class="dim">│</span>
+<span class="dim">│</span>                  <span class="accent-4">╰────────────╯</span>                      <span class="dim">│</span>
+<span class="dim">└─────────────────────────────────────────────────────┘</span></div></div>
+
+      <h3>WOW-3 · Lens Live Contribution Bars</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌── Lens · "tauri build failed missing icons" ──────────────────┐</span>
+<span class="dim">│</span> <span class="accent">#1</span> <span class="fg">memex · 'icons/ symlink fix'</span>                              <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent">██████████</span><span class="accent-4">████</span><span class="accent-2">██</span><span class="accent-5">██</span><span class="accent-3">█</span>                                  <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent">content .42</span> <span class="accent-4">error .19</span> <span class="accent-2">code .09</span> <span class="accent-5">path .08</span>             <span class="dim">│</span>
+<span class="dim">│</span> <span class="accent">#2</span> <span class="fg">memex · 'bundle macos icons missing'</span>                      <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent">█████████</span><span class="accent-4">██████</span><span class="accent-2">█</span><span class="accent-5">██</span>                                  <span class="dim">│</span>
+<span class="dim">└───────────────────────────────────────────────────────────────┘</span></div></div>
+
+      <h3>WOW-4 · Predict Cinematic Panel</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌── Predict next actions · session #80 ──────────────────────────┐</span>
+<span class="dim">│</span>  <span class="accent">┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐</span>                          <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent">│ Bash │ │ Edit │ │ Bash │ │ Read │</span>                          <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent">│cargo │ │.toml │ │ pnpm │ │README│</span>                          <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent">│ ▶ 67%│ │  33% │ │  21% │ │  18% │</span>                          <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent">└──────┘ └──────┘ └──────┘ └──────┘</span>                          <span class="dim">│</span>
+<span class="dim">└────────────────────────────────────────────────────────────────┘</span></div></div>
+
+      <h3>WOW-5 · Discovery Splash (Mix &amp; Match)</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌── Mix &amp; Match ────────────────────────────────────────────────┐</span>
+<span class="dim">│</span>           <span class="accent-3">●</span> positive                                          <span class="dim">│</span>
+<span class="dim">│</span>          <span class="accent-3">●</span>   <span class="accent-3">●</span>   workspace-a                                  <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent-2">═══════════════════════</span> hyperplane (3D)                     <span class="dim">│</span>
+<span class="dim">│</span>             <span class="accent">●</span> negative                                          <span class="dim">│</span>
+<span class="dim">│</span>  emits →  <span class="accent-3">[card] [card] [card] [card] [card]</span>                <span class="dim">│</span>
+<span class="dim">└────────────────────────────────────────────────────────────────┘</span></div></div>
+    </section>
+
+    <section id="s4">
+      <h2><span class="num">§4</span> Target Architecture (post-D-0)</h2>
+      <p class="lede">기존 layered 아키텍처를 깨지 않는다. indexer.rs만 6개 모듈로 펼친다.</p>
+      <div class="arch-wrap">
+<svg viewBox="0 0 920 540" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Memex target architecture diagram">
+  <defs>
+    <linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dc382d" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#bf5af2" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="lg2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#64d2ff" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#64d2ff" stop-opacity=".05"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8b95b3"/></marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#dc382d"/></marker>
+  </defs>
+  <style>
+    .lbl { font-family: -apple-system,"Inter",sans-serif; font-size: 13px; fill: #e8eaf1; }
+    .lbl-sm { font-family: "JetBrains Mono",monospace; font-size: 10.5px; fill: #8b95b3; }
+    .lbl-title { font-family: -apple-system,"Inter",sans-serif; font-size: 12px; fill: #8b95b3; text-transform: uppercase; letter-spacing: .05em; }
+    .box { fill: #131826; stroke: #2a3658; stroke-width: 1; }
+    .box-accent { stroke: #dc382d; stroke-width: 1.5; }
+    .edge { stroke: #5d678a; stroke-width: 1.2; fill: none; }
+    .edge-hot { stroke: #dc382d; stroke-width: 1.8; fill: none; }
+  </style>
+  <rect x="20" y="220" width="180" height="80" rx="10" class="box"/>
+  <text x="110" y="245" text-anchor="middle" class="lbl-title">filesystem</text>
+  <text x="110" y="268" text-anchor="middle" class="lbl">~/.claude/projects/</text>
+  <rect x="240" y="100" width="160" height="60" rx="8" class="box"/>
+  <text x="320" y="125" text-anchor="middle" class="lbl">parser.rs</text>
+  <rect x="230" y="190" width="430" height="270" rx="14" fill="url(#lg1)" stroke="#dc382d" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="445" y="212" text-anchor="middle" class="lbl-title" style="fill:#dc382d">indexer/ (split target)</text>
+  <rect x="245" y="225" width="125" height="46" rx="6" class="box"/><text x="307" y="245" text-anchor="middle" class="lbl">embed.rs</text>
+  <rect x="380" y="225" width="125" height="46" rx="6" class="box"/><text x="442" y="245" text-anchor="middle" class="lbl">schema.rs</text>
+  <rect x="515" y="225" width="135" height="46" rx="6" class="box"/><text x="582" y="245" text-anchor="middle" class="lbl">crud.rs</text>
+  <rect x="245" y="285" width="125" height="46" rx="6" class="box box-accent"/><text x="307" y="305" text-anchor="middle" class="lbl">search.rs</text>
+  <rect x="380" y="285" width="125" height="46" rx="6" class="box"/><text x="442" y="305" text-anchor="middle" class="lbl">predict.rs</text>
+  <rect x="515" y="285" width="135" height="46" rx="6" class="box"/><text x="582" y="305" text-anchor="middle" class="lbl">snapshot.rs</text>
+  <rect x="245" y="345" width="405" height="46" rx="6" class="box"/><text x="447" y="365" text-anchor="middle" class="lbl">topology.rs · matrix → MST</text>
+  <rect x="245" y="405" width="405" height="40" rx="6" class="box"/><text x="447" y="429" text-anchor="middle" class="lbl-sm">commands.rs (thin Tauri IPC)</text>
+  <rect x="690" y="190" width="210" height="270" rx="12" fill="url(#lg2)" stroke="#64d2ff" stroke-width="1"/>
+  <text x="795" y="212" text-anchor="middle" class="lbl-title" style="fill:#64d2ff">Qdrant 1.18 (local)</text>
+  <rect x="705" y="230" width="180" height="40" rx="6" class="box"/><text x="795" y="248" text-anchor="middle" class="lbl">memex_sessions_v2</text>
+  <rect x="705" y="280" width="180" height="48" rx="6" class="box"/><text x="795" y="298" text-anchor="middle" class="lbl-sm" style="fill:#e8eaf1">5 dense + 1 multivec + 2 sparse</text>
+  <rect x="705" y="338" width="180" height="40" rx="6" class="box"/><text x="795" y="356" text-anchor="middle" class="lbl-sm" style="fill:#e8eaf1">Query API · RRF · MMR</text>
+  <rect x="705" y="388" width="180" height="40" rx="6" class="box"/><text x="795" y="406" text-anchor="middle" class="lbl-sm" style="fill:#e8eaf1">scalar quantization</text>
+  <rect x="20" y="20" width="430" height="60" rx="10" class="box"/>
+  <text x="235" y="44" text-anchor="middle" class="lbl-title">Tauri 2 webview · 7 surfaces</text>
+  <path class="edge" d="M200,260 L230,260" marker-end="url(#arrow)"/>
+  <path class="edge" d="M320,160 L320,225" marker-end="url(#arrow)"/>
+  <path class="edge-hot" d="M650,308 L690,308" marker-end="url(#arrow-red)"/>
+  <path class="edge" d="M447,425 C 447,460 220,460 220,90" marker-end="url(#arrow)"/>
+</svg>
+      </div>
+    </section>
+
+    <section id="s5">
+      <h2><span class="num">§5</span> 14-day Roadmap (D-14 → D-0)</h2>
+      <p class="lede">오늘 2026-05-18 D-14 → 마감 2026-06-01 D-0. Track A · Track B 평행, 격일 standup, D-4 G1, D-1 G2.</p>
+      <div class="timeline">
+        <div class="h">Day</div><div class="h">Track A · Strategy</div><div class="h">Track B · Engineering</div><div class="h">Gate</div>
+        <div class="day">D-14</div><div>brief lock · panel kickoff</div><div>SEC-003 + SEC-004 fix</div><div class="gate amber">SEC fix</div>
+        <div class="day">D-13</div><div>demo script v0</div><div>K01 spike</div><div class="gate">spike PR</div>
+        <div class="day">D-12</div><div>motion token system</div><div>K03 BM25 sparse merge</div><div class="gate go">G0 ✓</div>
+        <div class="day">D-11</div><div>Bush 인용 검증</div><div>K02 content_late token A/B</div><div class="gate">eval start</div>
+        <div class="day">D-10</div><div>checkpoint #1</div><div>K06 async ONNX + batch=32</div><div class="gate go">G1-pre ✓</div>
+        <div class="day">D-9</div><div>storyboard 확정</div><div>K04 MMR + Relevance Feedback</div><div class="gate">RF flag on</div>
+        <div class="day">D-8</div><div>WOW-1/3 motion 1st pass</div><div>K02 eval gate (+15% or revert)</div><div class="gate amber">eval gate</div>
+        <div class="day">D-7</div><div>demo recording draft 1</div><div>WOW-2 Topology gateway</div><div class="gate">visual review</div>
+        <div class="day">D-6</div><div>team review</div><div>WOW-4 Predict cinematic</div><div class="gate">usability</div>
+        <div class="day">D-5</div><div>WOW-5 splash · landing</div><div>K05 SQ + signed snapshot</div><div class="gate go">G1 freeze ✓</div>
+        <div class="day">D-4</div><div>recording draft 2</div><div>full regression</div><div class="gate freeze">FEATURE FREEZE</div>
+        <div class="day">D-3</div><div>landing polish</div><div>schema lock · bugfix only</div><div class="gate freeze">schema lock</div>
+        <div class="day">D-2</div><div>Google Form draft</div><div>DMG clean-machine test</div><div class="gate">build test</div>
+        <div class="day">D-1</div><div>dry-run end-to-end</div><div>hotfix only</div><div class="gate freeze">SHIP FREEZE</div>
+        <div class="day">D-0</div><div>submit before 23:59 UTC</div><div>—</div><div class="gate go">SUBMIT ✓</div>
+      </div>
+    </section>
+
+    <section id="s6">
+      <h2><span class="num">§6</span> Risk Register</h2>
+      <p class="lede">사전조사 3편 이상에서 컨버전트한 7개 risk.</p>
+      <table class="risk">
+        <thead><tr><th>ID</th><th>Sev</th><th>Risk</th><th>Mitigation</th><th>Owner</th></tr></thead>
+        <tbody>
+          <tr><td>R1</td><td class="sev high">HIGH</td><td>SEC-003 path containment 미수정</td><td>D-14 fix</td><td>B2 Aisha</td></tr>
+          <tr><td>R2</td><td class="sev high">HIGH</td><td>demo 영상 미녹화 → DQ</td><td>D-13 storyboard · D-7 draft 1</td><td>A4 Daichi</td></tr>
+          <tr><td>R3</td><td class="sev med">MED</td><td>KICK 02 nDCG 무효</td><td>D-8 eval gate · revert</td><td>B4 Priya</td></tr>
+          <tr><td>R4</td><td class="sev med">MED</td><td>schema v2 재인덱스 부담</td><td>SQ + batch + dual-write</td><td>B3 Felix</td></tr>
+          <tr><td>R5</td><td class="sev med">MED</td><td>60fps motion 미달</td><td>WebGL particle 금지 · perf budget</td><td>B5 Min-jae</td></tr>
+          <tr><td>R6</td><td class="sev low">LOW</td><td>1.18 snapshot 호환성</td><td>schema_version 명시</td><td>B3 Felix</td></tr>
+          <tr><td>R7</td><td class="sev low">LOW</td><td>fastembed-rs 5→6 breaking</td><td>5.13.4 pin</td><td>B3 Felix</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="s7">
+      <h2><span class="num">§7</span> Demo Script (3-min walkthrough)</h2>
+      <p class="lede">Daichi (A4) 책임. 60s thesis + 5×24s surface segment.</p>
+      <div class="grid grid-2">
+        <article class="card"><h4>0:00–0:18 · Cold Open</h4><p style="font-size:13.5px">Bush 1945 잡지 페이지 fade-in. <i>"Consider a future device for individual use..."</i></p></article>
+        <article class="card"><h4>0:18–0:42 · Thesis (WAIT moment)</h4><p style="font-size:13.5px">Time Machine 카드 fly-in. <i>"No chat box. No LLM at runtime."</i></p></article>
+        <article class="card"><h4>0:42–1:06 · Topology Galaxy</h4><p style="font-size:13.5px">⌘+T zoom. bridge edge 발광. gap insight hover.</p></article>
+        <article class="card"><h4>1:06–1:30 · Lens slider live</h4><p style="font-size:13.5px">⌘K → contribution bar 살아 움직임. path sparse 1위.</p></article>
+        <article class="card"><h4>1:30–1:54 · Predict + Replay</h4><p style="font-size:13.5px">4×3 thumbnail grid → cinematic zoom → Replay.</p></article>
+        <article class="card"><h4>1:54–2:18 · Proactive Recall</h4><p style="font-size:13.5px">에러 banner 12초 내. zero LLM 강조.</p></article>
+        <article class="card"><h4>2:18–2:42 · Mix &amp; Match Discovery</h4><p style="font-size:13.5px">3D hyperplane. <i>"Recommendation, not retrieval."</i></p></article>
+        <article class="card"><h4>2:42–3:00 · Outro</h4><p style="font-size:13.5px">surface montage. <code>github.com/ComBba/memex</code> + Qdrant logo.</p></article>
+      </div>
+    </section>
+
+    <section id="s8">
+      <h2><span class="num">§8</span> Sources &amp; Provenance</h2>
+      <p class="lede">10편 사전조사로 추적 가능. 코드 주장은 file:line, 외부 주장은 URL + fetched date.</p>
+      <div class="sources">
+        <div class="src-card"><div class="label">analysis · backend</div><a href="analysis/01-backend-rust-architecture.md">01-backend-rust-architecture.md</a></div>
+        <div class="src-card"><div class="label">analysis · system</div><a href="analysis/02-system-architecture-decisions.md">02-system-architecture-decisions.md</a></div>
+        <div class="src-card"><div class="label">analysis · frontend</div><a href="analysis/03-frontend-tauri-integration.md">03-frontend-tauri-integration.md</a></div>
+        <div class="src-card"><div class="label">analysis · security</div><a href="analysis/04-security-audit.md">04-security-audit.md</a></div>
+        <div class="src-card"><div class="label">analysis · perf</div><a href="analysis/05-performance-analysis.md">05-performance-analysis.md</a></div>
+        <div class="src-card"><div class="label">research · docs</div><a href="research/01-qdrant-official-docs-2026.md">01-qdrant-official-docs-2026.md</a></div>
+        <div class="src-card"><div class="label">research · blog</div><a href="research/02-qdrant-official-blog.md">02-qdrant-official-blog.md</a></div>
+        <div class="src-card"><div class="label">research · VSD 2026</div><a href="research/03-qdrant-vsd-2026-hackathon.md">03-qdrant-vsd-2026-hackathon.md</a></div>
+        <div class="src-card"><div class="label">research · sparse</div><a href="research/04-sparse-colbert-hybrid.md">04-sparse-colbert-hybrid.md</a></div>
+        <div class="src-card"><div class="label">research · ecosystem</div><a href="research/05-rust-tauri-fastembed-ecosystem.md">05-rust-tauri-fastembed-ecosystem.md</a></div>
+      </div>
+      <hr/>
+      <p class="footnote">v1 (consensus) authored on 2026-05-18 · 10-person panel · 10 KICK · 6 unanimous votes · 4 critic dissents preserved · scroll long-form layout · no source tree modified.</p>
+    </section>
+
+  </main>
+</div>
+</body>
+</html>

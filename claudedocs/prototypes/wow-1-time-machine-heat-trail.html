@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>WOW-1 · Time Machine Heat Trail (prototype)</title>
+<style>
+  :root {
+    --bg: #0a0e1a; --bg-elev: #131826; --border: #1f2940;
+    --fg: #e8eaf1; --fg-muted: #8b95b3;
+    --accent: #dc382d; --accent-2: #bf5af2; --accent-3: #30d158;
+    --accent-4: #ffd60a; --accent-5: #64d2ff;
+    --mono: "JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; overflow: hidden;
+    background:
+      radial-gradient(1400px 700px at 50% 100%, rgba(191,90,242,.10), transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, rgba(220,56,45,.10), transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, "Inter", sans-serif;
+    perspective: 1200px;
+  }
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 48px;
+    padding: 0 20px; display: flex; align-items: center; gap: 16px;
+    background: rgba(10,14,26,.7); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); z-index: 10;
+  }
+  .topbar .brand { font-weight: 700; letter-spacing: -.02em; }
+  .topbar .brand span { color: var(--accent); }
+  .topbar .num { font-family: var(--mono); font-size: 11px; color: var(--accent-5); }
+  .topbar .hint { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--fg-muted); }
+  .topbar a { color: var(--fg-muted); text-decoration: none; font-family: var(--mono); font-size: 11px; }
+  .topbar a:hover { color: var(--accent-5); }
+
+  .stack-area {
+    position: absolute; inset: 48px 0 0;
+    display: flex; align-items: center; justify-content: center;
+    transform-style: preserve-3d; transform: rotateX(8deg);
+  }
+  #trails {
+    position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  }
+  .deck {
+    position: relative; width: 480px; height: 70%;
+    transform-style: preserve-3d;
+  }
+  .card {
+    position: absolute; left: 50%; top: 50%;
+    width: 460px; padding: 18px 22px;
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    transform-style: preserve-3d;
+    transition: transform .42s cubic-bezier(.22,.61,.36,1), border-color .18s, box-shadow .18s;
+    cursor: pointer;
+    backface-visibility: hidden;
+  }
+  .card:hover {
+    border-color: rgba(100,210,255,.5);
+    box-shadow: 0 16px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(100,210,255,.3);
+  }
+  .card .row1 { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .card .id { font-family: var(--mono); color: var(--accent); font-weight: 700; font-size: 14px; }
+  .card .when { font-family: var(--mono); color: var(--fg-muted); font-size: 12px; }
+  .card .title { font-size: 15px; font-weight: 600; color: #fff; margin: 2px 0 6px; letter-spacing: -.01em; }
+  .card .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .chip {
+    font-family: var(--mono); font-size: 10.5px; padding: 2px 7px; border-radius: 4px;
+    background: rgba(100,210,255,.1); color: var(--accent-5);
+    border: 1px solid rgba(100,210,255,.2);
+  }
+  .chip.green { background: rgba(48,209,88,.1); color: var(--accent-3); border-color: rgba(48,209,88,.2); }
+  .chip.warn { background: rgba(255,214,10,.1); color: var(--accent-4); border-color: rgba(255,214,10,.2); }
+  .chip.dim { background: var(--border); color: var(--fg-muted); border-color: var(--border); }
+  .card .stats { font-family: var(--mono); font-size: 11px; color: var(--fg-muted); margin-top: 4px; }
+  .card.focused {
+    border-color: rgba(191,90,242,.5);
+    box-shadow: 0 24px 50px rgba(0,0,0,.6), 0 0 0 2px rgba(191,90,242,.3);
+  }
+
+  .legend {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(19,24,38,.85); backdrop-filter: blur(10px);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 8px 18px; font-family: var(--mono); font-size: 11px;
+    display: flex; gap: 18px; color: var(--fg-muted);
+  }
+  .legend kbd {
+    background: var(--bg-elev); padding: 1px 6px; border-radius: 3px;
+    border: 1px solid var(--border); color: var(--accent-5);
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">memex</span>
+  <span class="num">WOW-1 · Time Machine Heat Trail</span>
+  <span class="hint">hover a card · ↑↓ to scrub · prototype with fake data</span>
+  <a href="index.html">← all prototypes</a>
+</div>
+
+<div class="stack-area">
+  <svg id="trails" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div class="deck" id="deck"></div>
+</div>
+
+<div class="legend">
+  <span>↑↓ <kbd>time-travel</kbd></span>
+  <span>hover <kbd>show 5-neighbor heat trail</kbd></span>
+  <span>click <kbd>open session</kbd></span>
+</div>
+
+<script>
+// fake session data — heuristic chip 기반 (v3.2 enrich.rs simulation)
+const sessions = [
+  { id: 80, when: 'today', dur: '2h 14m', branch: 'memex/main', title: 'Tauri build investigation',
+    chips: [{t:'Bash×220',c:''}, {t:'Edit×34',c:'green'}, {t:'resolved✓',c:'green'}], errs: 0 },
+  { id: 79, when: 'yesterday', dur: '1h 02m', branch: 'memex/main', title: 'icons/ symlink fix',
+    chips: [{t:'Edit×12',c:'green'}, {t:'Bash×45',c:''}, {t:'resolved✓',c:'green'}], errs: 0 },
+  { id: 78, when: 'mon', dur: '3h 51m', branch: 'memex/main', title: 'macOS bundle signing notarize',
+    chips: [{t:'Bash×180',c:''}, {t:'Read×60',c:'dim'}, {t:'unresolved',c:'warn'}], errs: 3 },
+  { id: 77, when: 'sun', dur: '0h 45m', branch: 'memex/feat-predict', title: 'predict_next_actions draft',
+    chips: [{t:'Edit×48',c:'green'}, {t:'Bash×8',c:''}], errs: 0 },
+  { id: 76, when: 'sat', dur: '5h 22m', branch: 'project-yc/safe', title: 'SAFE filing draft refinement',
+    chips: [{t:'Edit×210',c:'green'}, {t:'Read×140',c:'dim'}], errs: 0 },
+  { id: 75, when: 'fri', dur: '1h 18m', branch: 'memex/main', title: 'Embedder lazy init refactor',
+    chips: [{t:'Edit×30',c:'green'}, {t:'Bash×12',c:''}], errs: 0 },
+  { id: 74, when: 'thu', dur: '2h 04m', branch: 'project-marketing/main', title: 'landing page copy iteration',
+    chips: [{t:'Edit×96',c:'green'}, {t:'Bash×3',c:''}], errs: 0 },
+  { id: 73, when: 'wed', dur: '4h 11m', branch: 'project-yc/safe', title: 'SAFE filing draft initial',
+    chips: [{t:'Edit×150',c:'green'}, {t:'Read×80',c:'dim'}], errs: 0 },
+  { id: 72, when: 'tue', dur: '0h 32m', branch: 'memex/main', title: 'Cargo.toml dep bump',
+    chips: [{t:'Edit×4',c:'green'}, {t:'Bash×6',c:''}], errs: 0 },
+  { id: 71, when: 'mon w-1', dur: '6h 50m', branch: 'memex/main', title: 'Topology force-graph integration',
+    chips: [{t:'Bash×95',c:''}, {t:'Edit×140',c:'green'}], errs: 2 },
+];
+
+// fake similarity matrix (deterministic for repro)
+function simKey(a, b) { return [a,b].sort().join('-'); }
+const sims = {};
+sessions.forEach((s, i) => sessions.forEach((t, j) => {
+  if (i === j) return;
+  const k = simKey(s.id, t.id);
+  if (sims[k] !== undefined) return;
+  // fake but deterministic: branch match + title token overlap
+  const branchMatch = s.branch === t.branch ? 0.4 : 0;
+  const sameTopic = (s.title.includes('SAFE') && t.title.includes('SAFE')) ||
+                    (s.title.includes('build') && t.title.includes('build')) ||
+                    (s.title.includes('symlink') && t.title.includes('build')) ? 0.45 : 0;
+  const dayDecay = Math.max(0, 0.3 - Math.abs(s.id - t.id) * 0.04);
+  sims[k] = Math.min(0.99, branchMatch + sameTopic + dayDecay + (Math.random() * 0.1));
+}));
+
+const deck = document.getElementById('deck');
+let focusIdx = 0;
+
+function render() {
+  deck.innerHTML = '';
+  sessions.forEach((s, i) => {
+    const card = document.createElement('div');
+    card.className = 'card' + (i === focusIdx ? ' focused' : '');
+    card.dataset.idx = i;
+    const offset = i - focusIdx;
+    const tz = -offset * 36;
+    const ty = offset * 28 - 80;
+    const scale = 1 - Math.abs(offset) * 0.04;
+    const opacity = Math.max(0, 1 - Math.abs(offset) * 0.18);
+    card.style.transform = `translate(-50%, -50%) translateY(${ty}px) translateZ(${tz}px) scale(${scale})`;
+    card.style.opacity = opacity;
+    card.style.zIndex = 100 - Math.abs(offset);
+    card.innerHTML = `
+      <div class="row1">
+        <span class="id">#${s.id}</span>
+        <span class="when">${s.when} · ${s.dur}</span>
+      </div>
+      <div class="title">"${s.title}"</div>
+      <div class="stats">${s.branch}${s.errs > 0 ? ' · <span style="color:var(--accent)">'+s.errs+' err</span>' : ''}</div>
+      <div class="chips">${s.chips.map(c => `<span class="chip ${c.c}">${c.t}</span>`).join('')}</div>
+    `;
+    card.addEventListener('mouseenter', () => drawTrails(i));
+    card.addEventListener('mouseleave', () => clearTrails());
+    card.addEventListener('click', () => { focusIdx = i; render(); clearTrails(); });
+    deck.appendChild(card);
+  });
+}
+
+function drawTrails(idx) {
+  const center = sessions[idx];
+  // find top-5 neighbors by sim
+  const ranked = sessions
+    .map((s, j) => j === idx ? null : { j, sim: sims[simKey(center.id, s.id)] || 0 })
+    .filter(Boolean)
+    .sort((a,b) => b.sim - a.sim)
+    .slice(0, 5);
+  const svg = document.getElementById('trails');
+  const rect = svg.getBoundingClientRect();
+  svg.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
+  const cards = deck.querySelectorAll('.card');
+  const src = cards[idx].getBoundingClientRect();
+  const sx = src.left + src.width/2 - rect.left;
+  const sy = src.top + src.height/2 - rect.top;
+  svg.innerHTML = ranked.map(r => {
+    const dst = cards[r.j].getBoundingClientRect();
+    const tx = dst.left + dst.width/2 - rect.left;
+    const ty = dst.top + dst.height/2 - rect.top;
+    const mx = (sx + tx) / 2 + (Math.random() - .5) * 80;
+    const my = (sy + ty) / 2 - 30;
+    const opacity = 0.3 + r.sim * 0.6;
+    const color = r.sim > 0.7 ? '#bf5af2' : r.sim > 0.5 ? '#64d2ff' : '#ffd60a';
+    return `
+      <path d="M${sx},${sy} Q${mx},${my} ${tx},${ty}"
+            fill="none" stroke="${color}" stroke-width="${1 + r.sim * 2}"
+            opacity="${opacity}" stroke-linecap="round">
+        <animate attributeName="stroke-dashoffset" from="200" to="0" dur="${0.6 + (1-r.sim)*0.8}s" fill="freeze" />
+      </path>
+      <text x="${mx}" y="${my - 8}" fill="${color}" font-family="JetBrains Mono" font-size="10" text-anchor="middle" opacity="${opacity}">sim ${r.sim.toFixed(2)}</text>
+    `;
+  }).join('');
+}
+
+function clearTrails() {
+  document.getElementById('trails').innerHTML = '';
+}
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' && focusIdx < sessions.length - 1) { focusIdx++; render(); clearTrails(); }
+  if (e.key === 'ArrowUp' && focusIdx > 0) { focusIdx--; render(); clearTrails(); }
+});
+
+window.addEventListener('wheel', e => {
+  if (Math.abs(e.deltaY) < 30) return;
+  if (e.deltaY > 0 && focusIdx < sessions.length - 1) { focusIdx++; render(); clearTrails(); }
+  if (e.deltaY < 0 && focusIdx > 0) { focusIdx--; render(); clearTrails(); }
+}, { passive: true });
+
+render();
+</script>
+
+</body>
+</html>

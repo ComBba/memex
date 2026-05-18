@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>WOW-3 · Lens Contribution Bars (prototype)</title>
+<style>
+  :root {
+    --bg: #0a0e1a; --bg-elev: #131826; --border: #1f2940;
+    --fg: #e8eaf1; --fg-muted: #8b95b3;
+    --accent: #dc382d; --accent-2: #bf5af2; --accent-3: #30d158;
+    --accent-4: #ffd60a; --accent-5: #64d2ff; --accent-6: #ff6482;
+    --mono: "JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, rgba(100,210,255,.08), transparent 60%),
+      var(--bg);
+    color: var(--fg); font-family: -apple-system, "Inter", sans-serif;
+  }
+  .topbar {
+    position: sticky; top: 0; height: 48px; padding: 0 20px;
+    display: flex; align-items: center; gap: 16px;
+    background: rgba(10,14,26,.85); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); z-index: 10;
+  }
+  .topbar .brand { font-weight: 700; }
+  .topbar .brand span { color: var(--accent); }
+  .topbar .num { font-family: var(--mono); font-size: 11px; color: var(--accent-5); }
+  .topbar .hint { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--fg-muted); }
+  .topbar a { color: var(--fg-muted); text-decoration: none; font-family: var(--mono); font-size: 11px; }
+  .topbar a:hover { color: var(--accent-5); }
+
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  .search-box {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px;
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 14px;
+    margin-bottom: 24px;
+  }
+  .search-box input {
+    flex: 1; background: transparent; border: 0; outline: 0;
+    color: var(--fg); font-size: 15px; font-family: -apple-system, "Inter", sans-serif;
+  }
+  .search-box input::placeholder { color: var(--fg-muted); }
+  .search-box .kbd {
+    font-family: var(--mono); font-size: 11px;
+    padding: 2px 8px; border-radius: 4px;
+    background: var(--border); color: var(--fg-muted);
+  }
+
+  .sliders {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px;
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 18px; margin-bottom: 28px;
+  }
+  @media (max-width: 720px) { .sliders { grid-template-columns: repeat(3, 1fr); } }
+  .slider-cell { display: flex; flex-direction: column; gap: 6px; }
+  .slider-cell label {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--fg-muted);
+    display: flex; justify-content: space-between;
+  }
+  .slider-cell label span:first-child { font-weight: 600; }
+  .slider-cell input {
+    width: 100%; -webkit-appearance: none; appearance: none;
+    height: 4px; background: var(--border); border-radius: 2px; outline: none;
+  }
+  .slider-cell input::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%; cursor: pointer;
+  }
+  .slider-cell.s-content input::-webkit-slider-thumb { background: var(--accent); }
+  .slider-cell.s-error input::-webkit-slider-thumb { background: var(--accent-4); }
+  .slider-cell.s-code input::-webkit-slider-thumb { background: var(--accent-2); }
+  .slider-cell.s-path input::-webkit-slider-thumb { background: var(--accent-5); }
+  .slider-cell.s-tool input::-webkit-slider-thumb { background: var(--accent-3); }
+  .slider-cell.s-late input::-webkit-slider-thumb { background: var(--accent-6); }
+
+  .results { display: flex; flex-direction: column; gap: 14px; }
+  .res {
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 18px;
+    transition: transform .25s cubic-bezier(.22,.61,.36,1), border-color .15s;
+  }
+  .res:hover { border-color: rgba(100,210,255,.4); transform: translateX(4px); }
+  .res .row1 { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  .res .rank { font-family: var(--mono); color: var(--accent); font-weight: 700; font-size: 15px; }
+  .res .title { font-size: 14.5px; font-weight: 600; color: #fff; }
+  .res .meta { font-family: var(--mono); font-size: 11.5px; color: var(--fg-muted); margin-bottom: 8px; }
+
+  .bar {
+    display: flex; height: 18px; border-radius: 4px; overflow: hidden;
+    border: 1px solid var(--border); margin: 6px 0 4px;
+  }
+  .bar .seg {
+    transition: flex-basis .32s cubic-bezier(.22,.61,.36,1), opacity .2s;
+    min-width: 0;
+  }
+  .bar .seg.content { background: linear-gradient(90deg, #dc382d, #f06b62); }
+  .bar .seg.error   { background: linear-gradient(90deg, #ffd60a, #e0bd07); }
+  .bar .seg.code    { background: linear-gradient(90deg, #bf5af2, #9d3fd6); }
+  .bar .seg.path    { background: linear-gradient(90deg, #64d2ff, #3a8ab3); }
+  .bar .seg.tool    { background: linear-gradient(90deg, #30d158, #1f8c3c); }
+  .bar .seg.late    { background: linear-gradient(90deg, #ff6482, #b03d5a); }
+
+  .legend-row { display: flex; flex-wrap: wrap; gap: 10px; font-family: var(--mono); font-size: 10.5px; }
+  .legend-row .lc { display: flex; align-items: center; gap: 4px; }
+  .legend-row .swatch { width: 8px; height: 8px; border-radius: 2px; }
+  .swatch.content { background: var(--accent); }
+  .swatch.error { background: var(--accent-4); }
+  .swatch.code { background: var(--accent-2); }
+  .swatch.path { background: var(--accent-5); }
+  .swatch.tool { background: var(--accent-3); }
+  .swatch.late { background: var(--accent-6); }
+
+  .formula {
+    margin-top: 12px; padding: 10px 14px;
+    background: rgba(100,210,255,.05); border: 1px dashed rgba(100,210,255,.3);
+    border-radius: 8px;
+    font-family: var(--mono); font-size: 11.5px;
+    color: var(--fg);
+    display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+  }
+  .formula .label { color: var(--accent-5); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .formula .term { color: var(--fg-muted); }
+  .formula .term b { color: #fff; font-weight: 600; }
+  .formula .op { color: var(--fg-dim); }
+
+  .info {
+    margin: 24px 0 0; padding: 14px 18px;
+    background: rgba(48,209,88,.05); border: 1px solid rgba(48,209,88,.3);
+    border-radius: 12px; font-size: 13px; color: var(--fg);
+  }
+  .info b { color: var(--accent-3); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">memex</span>
+  <span class="num">WOW-3 · Lens · FormulaQuery contribution bars · KA-01</span>
+  <span class="hint">slide weights · watch ranking re-form · prototype</span>
+  <a href="index.html">← all prototypes</a>
+</div>
+
+<div class="wrap">
+  <div class="search-box">
+    <span style="color:var(--fg-muted)">⌘K</span>
+    <input id="q" type="text" value="tauri build failed missing icons" />
+    <span class="kbd">Enter</span>
+  </div>
+
+  <div class="sliders">
+    <div class="slider-cell s-content"><label><span>content</span><span id="v-content">1.0</span></label><input type="range" min="0" max="2" step="0.1" value="1.0" data-k="content"/></div>
+    <div class="slider-cell s-error"><label><span>error</span><span id="v-error">0.8</span></label><input type="range" min="0" max="2" step="0.1" value="0.8" data-k="error"/></div>
+    <div class="slider-cell s-code"><label><span>code</span><span id="v-code">0.6</span></label><input type="range" min="0" max="2" step="0.1" value="0.6" data-k="code"/></div>
+    <div class="slider-cell s-path"><label><span>path</span><span id="v-path">1.5</span></label><input type="range" min="0" max="2" step="0.1" value="1.5" data-k="path"/></div>
+    <div class="slider-cell s-tool"><label><span>tool</span><span id="v-tool">0.4</span></label><input type="range" min="0" max="2" step="0.1" value="0.4" data-k="tool"/></div>
+    <div class="slider-cell s-late"><label><span>late_max</span><span id="v-late">0.7</span></label><input type="range" min="0" max="2" step="0.1" value="0.7" data-k="late"/></div>
+  </div>
+
+  <div class="legend-row" style="margin-bottom:18px">
+    <span class="lc"><span class="swatch content"></span>content (dense)</span>
+    <span class="lc"><span class="swatch error"></span>error (dense)</span>
+    <span class="lc"><span class="swatch code"></span>code (dense)</span>
+    <span class="lc"><span class="swatch path"></span>path (sparse · BM25)</span>
+    <span class="lc"><span class="swatch tool"></span>tool (sparse · BM25)</span>
+    <span class="lc"><span class="swatch late"></span>late_max (multivec MaxSim · KB-01)</span>
+  </div>
+
+  <div class="results" id="results"></div>
+
+  <div class="info">
+    <b>What you're seeing</b> · Each card's stacked bar = per-named-vector contribution to the final score. Below: server-side <code>FormulaQuery</code> breakdown (KA-01) — single round-trip combines dense + sparse + late-interaction prefetch with weighted RRF, then applies recency exp_decay + has_errors boost. Slide a weight to 0 to drop a lens; the bar shrinks and the ranking re-forms in 320ms.
+  </div>
+</div>
+
+<script>
+// fake search results — would come from Qdrant Query API in production
+const baseResults = [
+  {
+    title: "icons/ symlink fix",
+    meta: "memex/main · 2026-05-09 · 1h 02m · resolved✓",
+    raw: { content: .82, error: .58, code: .30, path: .92, tool: .42, late: .76 },
+    hasErrors: false, daysAgo: 9,
+  },
+  {
+    title: "bundle macos icons missing",
+    meta: "memex/main · 2026-05-07 · 0h 48m · resolved✓",
+    raw: { content: .76, error: .88, code: .20, path: .70, tool: .35, late: .68 },
+    hasErrors: true, daysAgo: 11,
+  },
+  {
+    title: "macos signing notarize fail",
+    meta: "project-yc · 2026-04-30 · 3h 51m · unresolved",
+    raw: { content: .48, error: .42, code: .15, path: .88, tool: .60, late: .54 },
+    hasErrors: true, daysAgo: 18,
+  },
+  {
+    title: "Tauri build investigation",
+    meta: "memex/main · today · 2h 14m · resolved✓",
+    raw: { content: .68, error: .30, code: .35, path: .55, tool: .50, late: .62 },
+    hasErrors: false, daysAgo: 0,
+  },
+  {
+    title: "icon resource fetch attempt",
+    meta: "memex/feat-pred · 2026-04-22 · 0h 22m · partial",
+    raw: { content: .58, error: .35, code: .50, path: .62, tool: .25, late: .48 },
+    hasErrors: false, daysAgo: 26,
+  },
+  {
+    title: "Cargo.toml dep bump (tauri 2)",
+    meta: "memex/main · 2026-04-15 · 0h 32m · resolved✓",
+    raw: { content: .32, error: .12, code: .42, path: .25, tool: .18, late: .28 },
+    hasErrors: false, daysAgo: 33,
+  },
+];
+
+const weights = { content: 1.0, error: 0.8, code: 0.6, path: 1.5, tool: 0.4, late: 0.7 };
+
+function decay(d) { return Math.exp(-d / 30); } // 30-day half-life
+function recompute() {
+  const results = baseResults.map(r => {
+    const segments = {};
+    let total = 0;
+    Object.keys(weights).forEach(k => {
+      const w = weights[k];
+      const v = r.raw[k] * w;
+      segments[k] = v;
+      total += v;
+    });
+    // recency boost (multiplicative)
+    const rec = decay(r.daysAgo);
+    // has_errors boost (additive on totals where filter would match)
+    const errBoost = r.hasErrors ? 0.2 : 0;
+    const finalScore = total * (0.7 + rec * 0.3) + errBoost;
+    return { ...r, segments, total, rec, errBoost, finalScore };
+  });
+  // sort by finalScore desc
+  results.sort((a, b) => b.finalScore - a.finalScore);
+  render(results);
+}
+
+function render(results) {
+  const root = document.getElementById('results');
+  root.innerHTML = '';
+  results.forEach((r, i) => {
+    const totalForBar = r.total || 1;
+    const segHTML = ['content','error','code','path','tool','late'].map(k => {
+      const pct = (r.segments[k] / totalForBar * 100).toFixed(1);
+      if (pct < 0.5) return '';
+      return `<div class="seg ${k}" style="flex-basis:${pct}%" title="${k} ${pct}%"></div>`;
+    }).join('');
+    const detailHTML = ['content','error','code','path','tool','late']
+      .filter(k => r.segments[k] / totalForBar > 0.02)
+      .map(k => `<span class="term"><b>${k}</b> .${(r.segments[k]/totalForBar).toFixed(2).slice(2)}</span>`).join(' <span class="op">·</span> ');
+    const card = document.createElement('div');
+    card.className = 'res';
+    card.innerHTML = `
+      <div class="row1">
+        <span class="rank">#${i+1}</span>
+        <span class="title">"${r.title}"</span>
+      </div>
+      <div class="meta">${r.meta}</div>
+      <div class="bar">${segHTML}</div>
+      <div class="formula">
+        <span class="label">formula</span>
+        ${detailHTML}
+        <span class="op">×</span>
+        <span class="term">recency <b>×${r.rec.toFixed(2)}</b></span>
+        ${r.errBoost ? `<span class="op">+</span><span class="term">errors boost <b>+${r.errBoost.toFixed(2)}</b></span>` : ''}
+        <span class="op">=</span>
+        <span class="term">final <b style="color:var(--accent-5)">.${r.finalScore.toFixed(2).slice(2)}</b></span>
+      </div>
+    `;
+    root.appendChild(card);
+  });
+}
+
+document.querySelectorAll('input[data-k]').forEach(input => {
+  input.addEventListener('input', () => {
+    const k = input.dataset.k;
+    weights[k] = parseFloat(input.value);
+    document.getElementById('v-' + k).textContent = weights[k].toFixed(1);
+    recompute();
+  });
+});
+
+recompute();
+</script>
+
+</body>
+</html>

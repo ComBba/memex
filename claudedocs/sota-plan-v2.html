@@ -1,0 +1,1246 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Memex × Qdrant SOTA — 10-Person Panel · Divergence v2</title>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg-elev: #131826;
+    --bg-elev-2: #1a2238;
+    --border: #1f2940;
+    --border-strong: #2a3658;
+    --fg: #e8eaf1;
+    --fg-muted: #8b95b3;
+    --fg-dim: #5d678a;
+    --accent: #dc382d;      /* Qdrant red */
+    --accent-2: #bf5af2;    /* Memex purple */
+    --accent-3: #30d158;    /* OK green */
+    --accent-4: #ffd60a;    /* warn yellow */
+    --accent-5: #64d2ff;    /* cool blue */
+    --accent-6: #ff6482;    /* hot pink for conflict */
+    --gradient-hero: linear-gradient(135deg, #dc382d 0%, #bf5af2 55%, #64d2ff 100%);
+    --shadow-card: 0 8px 32px rgba(0,0,0,.4), 0 0 0 1px var(--border);
+    --shadow-glow: 0 0 24px rgba(220, 56, 45, .25);
+    --mono: "JetBrains Mono","SF Mono","Fira Code",Menlo,Consolas,monospace;
+    --sans: -apple-system,BlinkMacSystemFont,"Inter","SF Pro Text","Pretendard",sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, rgba(191,90,242,.10), transparent 60%),
+      radial-gradient(1000px 500px at 100% 20%, rgba(220,56,45,.10), transparent 50%),
+      radial-gradient(900px 400px at 50% 100%, rgba(100,210,255,.07), transparent 60%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 15.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection { background: rgba(220,56,45,.35); color: #fff; }
+
+  .shell { display: grid; grid-template-columns: 260px 1fr; max-width: 1480px; margin: 0 auto; }
+  @media (max-width: 960px) { .shell { grid-template-columns: 1fr; } .toc { display: none; } }
+
+  .toc {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 28px 18px; border-right: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  .toc .brand { font-weight: 700; letter-spacing: -.02em; margin-bottom: 8px; color: var(--fg); }
+  .toc .brand span { color: var(--accent); }
+  .toc .ver { font-family: var(--mono); font-size: 11px; color: var(--accent-2); margin-bottom: 18px; }
+  .toc ol { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+  .toc li { counter-increment: toc; margin: 6px 0; }
+  .toc a {
+    color: var(--fg-muted); text-decoration: none; display: block;
+    padding: 4px 10px; border-radius: 6px; transition: all .15s;
+    border-left: 2px solid transparent;
+  }
+  .toc a:hover { color: var(--fg); background: var(--bg-elev); border-left-color: var(--accent); }
+  .toc a::before { content: "§" counter(toc) ". "; color: var(--fg-dim); }
+  .toc .toc-sub { padding-left: 16px; font-size: 12.5px; margin: 3px 0; }
+  .toc .toc-sub a::before { content: "·  "; }
+
+  .main { padding: 36px 56px 120px; max-width: 1180px; }
+  @media (max-width: 720px) { .main { padding: 24px 18px 80px; } }
+
+  /* hero */
+  .hero {
+    margin: 8px 0 56px;
+    padding: 44px 40px 40px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(220,56,45,.08), rgba(191,90,242,.06) 50%, transparent);
+    border: 1px solid var(--border-strong);
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,.35), transparent),
+      radial-gradient(1px 1px at 70% 60%, rgba(255,255,255,.25), transparent),
+      radial-gradient(1.5px 1.5px at 40% 80%, rgba(191,90,242,.4), transparent),
+      radial-gradient(1px 1px at 85% 25%, rgba(100,210,255,.3), transparent);
+    background-size: 320px 320px;
+    opacity: .6; pointer-events: none;
+  }
+  .hero h1 {
+    margin: 0 0 12px;
+    font-size: 42px; letter-spacing: -.025em; font-weight: 800; line-height: 1.1;
+    background: var(--gradient-hero);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero .ver-tag {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    background: rgba(220,56,45,.15); color: var(--accent);
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    margin-bottom: 10px; letter-spacing: .04em;
+  }
+  .hero .sub { color: var(--fg-muted); font-size: 17px; max-width: 760px; }
+  .hero .stance {
+    margin-top: 18px; padding: 14px 18px; border-radius: 10px;
+    background: rgba(255,100,130,.06); border: 1px solid rgba(255,100,130,.3);
+    font-size: 14px; color: var(--fg);
+  }
+  .hero .stance b { color: var(--accent-6); }
+  .hero .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    font-size: 12px; color: var(--fg-muted); font-family: var(--mono);
+  }
+  .pill.red { color: var(--accent); border-color: rgba(220,56,45,.4); }
+  .pill.green { color: var(--accent-3); border-color: rgba(48,209,88,.4); }
+  .pill.purple { color: var(--accent-2); border-color: rgba(191,90,242,.4); }
+  .pill.yellow { color: var(--accent-4); border-color: rgba(255,214,10,.4); }
+  .pill.blue { color: var(--accent-5); border-color: rgba(100,210,255,.4); }
+  .pill.pink { color: var(--accent-6); border-color: rgba(255,100,130,.4); }
+
+  /* section */
+  section { margin: 56px 0; scroll-margin-top: 24px; }
+  h2 {
+    font-size: 28px; letter-spacing: -.02em; margin: 0 0 6px;
+    display: flex; align-items: baseline; gap: 14px;
+  }
+  h2 .num { font-family: var(--mono); font-size: 16px; color: var(--accent); font-weight: 500; letter-spacing: 0; }
+  h3 { font-size: 19px; margin: 32px 0 10px; letter-spacing: -.01em; }
+  h4 { font-size: 15px; margin: 20px 0 6px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  p { margin: 10px 0; }
+  .lede { color: var(--fg-muted); margin: 0 0 28px; max-width: 780px; }
+  strong { color: #fff; }
+  em { color: var(--fg-muted); }
+
+  a { color: var(--accent-5); text-decoration: none; border-bottom: 1px solid rgba(100,210,255,.3); }
+  a:hover { color: #fff; border-color: var(--accent-5); }
+
+  code, kbd { font-family: var(--mono); font-size: 13px; background: var(--bg-elev); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); }
+  pre {
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: 16px 18px; overflow-x: auto;
+    font-family: var(--mono); font-size: 13px; line-height: 1.55;
+    margin: 14px 0;
+  }
+  pre code { background: transparent; border: 0; padding: 0; }
+  blockquote {
+    margin: 14px 0; padding: 12px 18px;
+    border-left: 3px solid var(--accent-2);
+    background: rgba(191,90,242,.06);
+    border-radius: 0 8px 8px 0; color: var(--fg);
+  }
+  blockquote .src { display: block; margin-top: 6px; font-size: 12px; color: var(--fg-muted); font-family: var(--mono); }
+
+  .grid { display: grid; gap: 14px; }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-5 { grid-template-columns: repeat(5, 1fr); }
+  @media (max-width: 880px) { .grid-2, .grid-3, .grid-5 { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .grid-2, .grid-3, .grid-5 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 18px 16px;
+    transition: transform .18s, border-color .18s, box-shadow .18s;
+  }
+  .card:hover { transform: translateY(-2px); border-color: var(--border-strong); box-shadow: var(--shadow-card); }
+  .card h4 { margin: 0 0 6px; color: var(--fg); font-size: 14px; text-transform: none; letter-spacing: 0; font-weight: 600; }
+
+  /* panel */
+  .panel-team-header {
+    display: flex; align-items: center; gap: 16px; margin: 28px 0 12px;
+    padding: 10px 14px; border-radius: 10px;
+    background: linear-gradient(90deg, rgba(220,56,45,.08), transparent 80%);
+    border: 1px solid var(--border);
+  }
+  .panel-team-header.b { background: linear-gradient(90deg, rgba(100,210,255,.08), transparent 80%); }
+  .panel-team-header h3 { margin: 0; }
+  .panel-team-header .tag { font-family: var(--mono); font-size: 12px; padding: 2px 8px; border-radius: 4px; background: rgba(220,56,45,.15); color: var(--accent); }
+  .panel-team-header.b .tag { background: rgba(100,210,255,.15); color: var(--accent-5); }
+
+  .persona {
+    display: grid; grid-template-columns: 56px 1fr; gap: 14px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 16px;
+  }
+  .persona .avatar {
+    width: 48px; height: 48px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 17px; color: #fff;
+    font-family: var(--mono); letter-spacing: 0;
+  }
+  .persona .name { font-weight: 600; color: #fff; font-size: 15px; }
+  .persona .role { font-size: 12px; color: var(--fg-muted); font-family: var(--mono); margin-bottom: 6px; }
+  .persona .quote { font-size: 13.5px; color: var(--fg); border-left: 2px solid var(--border-strong); padding-left: 10px; margin-top: 6px; font-style: italic; }
+  .persona .duties { font-size: 12.5px; color: var(--fg-muted); margin-top: 4px; }
+  .persona.lead { border-color: rgba(220,56,45,.4); }
+  .persona.lead.b { border-color: rgba(100,210,255,.4); }
+  .persona.critic { border-style: dashed; border-color: rgba(255,214,10,.5); }
+  .persona .badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px; font-size: 10.5px; font-family: var(--mono); font-weight: 600; }
+  .persona .badge.lead { background: rgba(220,56,45,.18); color: var(--accent); }
+  .persona .badge.lead-b { background: rgba(100,210,255,.18); color: var(--accent-5); }
+  .persona .badge.critic { background: rgba(255,214,10,.18); color: var(--accent-4); }
+
+  /* CONFLICT BOX — new in v2 */
+  .conflict {
+    margin: 18px 0;
+    padding: 18px 20px;
+    background: linear-gradient(180deg, rgba(255,100,130,.08), rgba(255,100,130,.03));
+    border: 1px solid rgba(255,100,130,.4);
+    border-left: 4px solid var(--accent-6);
+    border-radius: 12px;
+    position: relative;
+  }
+  .conflict .clabel {
+    position: absolute; top: -10px; left: 16px;
+    background: var(--bg); padding: 0 10px;
+    color: var(--accent-6);
+    font-family: var(--mono); font-size: 11.5px; font-weight: 700;
+    letter-spacing: .08em;
+  }
+  .conflict h4 { margin: 4px 0 8px; color: #fff; text-transform: none; letter-spacing: 0; font-size: 15.5px; font-weight: 600; }
+  .conflict .sides { display: grid; grid-template-columns: 1fr 14px 1fr; gap: 14px; align-items: stretch; margin: 12px 0 10px; }
+  @media (max-width: 720px) { .conflict .sides { grid-template-columns: 1fr; } .conflict .vs { display: none; } }
+  .conflict .side { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-size: 13.5px; }
+  .conflict .side.a { border-color: rgba(220,56,45,.4); }
+  .conflict .side.b { border-color: rgba(100,210,255,.4); }
+  .conflict .side .who { font-family: var(--mono); font-size: 11.5px; color: var(--fg-muted); margin-bottom: 4px; }
+  .conflict .vs { display: flex; align-items: center; justify-content: center; color: var(--accent-6); font-family: var(--mono); font-weight: 700; font-size: 14px; }
+  .conflict .resolve { margin-top: 8px; padding-top: 10px; border-top: 1px dashed rgba(255,100,130,.3); font-size: 12.5px; color: var(--fg-muted); }
+  .conflict .resolve b { color: var(--accent-6); font-family: var(--mono); }
+
+  /* KICK card with vote bar */
+  .kick {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 22px 18px;
+    margin: 14px 0;
+    position: relative;
+  }
+  .kick::before {
+    content: attr(data-num);
+    position: absolute; top: -10px; left: 18px;
+    background: var(--bg); padding: 0 8px;
+    color: var(--accent);
+    font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .05em;
+  }
+  .kick h4 { margin: 0 0 6px; color: #fff; font-size: 16px; text-transform: none; letter-spacing: 0; font-weight: 600; }
+  .kick .impact-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .kick .impact { font-family: var(--mono); font-size: 11.5px; color: var(--fg-muted); }
+  .kick .impact b { color: #fff; font-weight: 600; }
+
+  /* vote bar */
+  .vote {
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+    display: grid; grid-template-columns: 110px 1fr; gap: 14px; align-items: center;
+  }
+  .vote-bar { display: flex; height: 18px; border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+  .vote-bar .for { background: linear-gradient(90deg, rgba(48,209,88,.5), rgba(48,209,88,.25)); display: flex; align-items: center; padding: 0 8px; font-family: var(--mono); font-size: 11px; color: #fff; font-weight: 600; }
+  .vote-bar .against { background: linear-gradient(90deg, rgba(255,100,130,.25), rgba(255,100,130,.5)); display: flex; align-items: center; justify-content: flex-end; padding: 0 8px; font-family: var(--mono); font-size: 11px; color: #fff; font-weight: 600; }
+  .vote-tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-family: var(--mono); font-size: 11px;
+  }
+  .vote-tag.split { background: rgba(255,100,130,.15); color: var(--accent-6); }
+  .vote-tag.strong { background: rgba(48,209,88,.15); color: var(--accent-3); }
+  .vote-tag.weak { background: rgba(255,214,10,.15); color: var(--accent-4); }
+  .vote-tag.unanimous { background: rgba(100,210,255,.15); color: var(--accent-5); }
+  .vote-detail { font-size: 12px; color: var(--fg-muted); margin-top: 8px; font-family: var(--mono); }
+  .vote-detail b.for { color: var(--accent-3); }
+  .vote-detail b.against { color: var(--accent-6); }
+
+  .dissent {
+    margin: 12px 0 0;
+    padding: 12px 16px;
+    background: rgba(255,214,10,.06);
+    border: 1px dashed rgba(255,214,10,.4);
+    border-radius: 8px;
+    font-size: 13.5px;
+  }
+  .dissent .who { font-family: var(--mono); font-size: 11.5px; color: var(--accent-4); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
+
+  .endorse {
+    margin: 12px 0 0;
+    padding: 12px 16px;
+    background: rgba(48,209,88,.05);
+    border: 1px dashed rgba(48,209,88,.35);
+    border-radius: 8px;
+    font-size: 13.5px;
+  }
+  .endorse .who { font-family: var(--mono); font-size: 11.5px; color: var(--accent-3); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
+
+  /* roadmap */
+  .timeline { display: grid; grid-template-columns: 80px 1fr 1fr 110px; gap: 0; margin-top: 14px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .timeline > div { padding: 10px 14px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); font-size: 13px; }
+  .timeline > div:nth-child(4n) { border-right: 0; }
+  .timeline .h { background: var(--bg-elev-2); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-muted); }
+  .timeline .day { font-family: var(--mono); color: var(--accent); font-weight: 600; }
+  .timeline .gate { font-family: var(--mono); font-size: 11.5px; }
+  .timeline .gate.go { color: var(--accent-3); }
+  .timeline .gate.amber { color: var(--accent-4); }
+  .timeline .gate.freeze { color: var(--accent-5); }
+  .timeline .gate.split { color: var(--accent-6); }
+  @media (max-width: 720px) {
+    .timeline { grid-template-columns: 60px 1fr; }
+    .timeline .h:nth-child(3), .timeline .h:nth-child(4),
+    .timeline > div:nth-child(4n-1), .timeline > div:nth-child(4n) { display: none; }
+  }
+
+  /* risk table */
+  table.risk { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 14px 0; }
+  table.risk th, table.risk td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.risk th { color: var(--fg-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; background: var(--bg-elev); }
+  table.risk td.sev { font-family: var(--mono); font-weight: 600; }
+  table.risk td.sev.high { color: var(--accent); }
+  table.risk td.sev.med { color: var(--accent-4); }
+  table.risk td.sev.low { color: var(--accent-3); }
+
+  /* mockups */
+  .mockup {
+    background: #060912;
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    padding: 16px 18px; margin: 12px 0;
+    font-family: var(--mono); font-size: 12px; line-height: 1.45;
+    color: var(--fg-muted); white-space: pre; overflow-x: auto;
+    position: relative;
+  }
+  .mockup::before {
+    content: "·  ·  ·";
+    position: absolute; top: 8px; left: 12px;
+    letter-spacing: .25em; color: var(--fg-dim);
+  }
+  .mockup-body { padding-top: 18px; }
+  .mockup .accent { color: var(--accent); }
+  .mockup .accent-2 { color: var(--accent-2); }
+  .mockup .accent-3 { color: var(--accent-3); }
+  .mockup .accent-4 { color: var(--accent-4); }
+  .mockup .accent-5 { color: var(--accent-5); }
+  .mockup .accent-6 { color: var(--accent-6); }
+  .mockup .dim { color: var(--fg-dim); }
+  .mockup .fg { color: var(--fg); }
+
+  .arch-wrap { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px; padding: 18px; overflow-x: auto; }
+
+  .sources { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 13px; }
+  @media (max-width: 720px) { .sources { grid-template-columns: 1fr; } }
+  .sources .src-card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .sources .src-card .label { font-family: var(--mono); font-size: 11px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .04em; }
+  .sources .src-card a { font-size: 13px; border: 0; }
+
+  hr { border: 0; border-top: 1px solid var(--border); margin: 32px 0; }
+  .footnote { font-size: 12px; color: var(--fg-dim); font-family: var(--mono); margin-top: 6px; }
+
+  .ship-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-family: var(--mono); font-size: 10.5px; font-weight: 600; margin-left: 6px; }
+  .ship-tag.ship { background: rgba(48,209,88,.15); color: var(--accent-3); border: 1px solid rgba(48,209,88,.3); }
+  .ship-tag.cond { background: rgba(255,214,10,.15); color: var(--accent-4); border: 1px solid rgba(255,214,10,.3); }
+  .ship-tag.hold { background: rgba(255,100,130,.15); color: var(--accent-6); border: 1px solid rgba(255,100,130,.3); }
+  .ship-tag.post { background: rgba(100,210,255,.15); color: var(--accent-5); border: 1px solid rgba(100,210,255,.3); }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="brand">Memex × <span>Qdrant</span> SOTA</div>
+    <div class="ver">v2 · divergence mode</div>
+    <ol>
+      <li><a href="#s1">10-Person Panel</a>
+        <ol class="toc-sub">
+          <li><a href="#s1a">Team A · Strategy</a></li>
+          <li><a href="#s1b">Team B · Engineering</a></li>
+        </ol>
+      </li>
+      <li><a href="#s2">Open Conflicts (5)</a></li>
+      <li><a href="#s3">Tech Kicks · 19 SOTA items</a>
+        <ol class="toc-sub">
+          <li><a href="#k01">K01-K06 core hybrid</a></li>
+          <li><a href="#k07">K07-K10 perf &amp; cache</a></li>
+          <li><a href="#k11">K11-K15 advanced primitives</a></li>
+          <li><a href="#k16">K16-K19 deep tuning</a></li>
+        </ol>
+      </li>
+      <li><a href="#s4">Visual WOW (5)</a></li>
+      <li><a href="#s5">Architecture (target)</a></li>
+      <li><a href="#s6">14-day Roadmap</a></li>
+      <li><a href="#s7">Risk Register</a></li>
+      <li><a href="#s8">Demo Script (3 min)</a></li>
+      <li><a href="#s9">Sources &amp; Provenance</a></li>
+    </ol>
+  </nav>
+
+  <main class="main">
+    <header class="hero">
+      <span class="ver-tag">v2 · DIVERGENCE MODE · 2026-05-18</span>
+      <h1>Memex × Qdrant SOTA<br/>10-Person Panel — divergent draft</h1>
+      <p class="sub">v1의 "10/10 만장일치" 모드는 panel을 echo chamber로 만들었다. v2는 <b>의견을 확대</b>한다. 19개 SOTA 항목(이전 10개의 두 배 +α), 5개 미해결 충돌, 각 항목에 split vote 표기. <i>꼭 제거할 이유가 없는 항목은 제거하지 않는다.</i></p>
+      <div class="stance">
+        <b>v2 stance</b> · 합의는 목표가 아니다. <b>divergence가 신호다.</b> Vote 7-3, 6-4가 통과 가능. Critic dissent는 결정에 반영되지만 결정을 막지는 않는다. 5개 Cross-team Conflict는 <b>2026-05-25 (D-7) standup까지 미해결 상태로 노출</b>해서 강제 결정에 던진다.
+      </div>
+      <div class="meta">
+        <span class="pill red">VSD 2026 · 2026-06-01</span>
+        <span class="pill purple">10-person panel · divergent</span>
+        <span class="pill pink">5 open conflicts</span>
+        <span class="pill blue">19 SOTA kicks · 5 WOW</span>
+        <span class="pill green">No LLM at runtime · invariant</span>
+        <span class="pill yellow">Remote: ComBba/memex only</span>
+      </div>
+    </header>
+
+    <!-- ============================ §1 PANEL ============================ -->
+    <section id="s1">
+      <h2><span class="num">§1</span> 10-Person Panel</h2>
+      <p class="lede">2개 팀 × 5명. 팀장 2, Critic 2, 실무 6. <b>Critic은 hold권 1회, dissent권 무제한.</b> Critic이 hold권 행사하면 그 항목은 다음 격일 standup까지 ship 금지. 모든 항목은 panel vote로 통과 — 10/10이 아니라 <b>6/10 이상이면 통과</b>, 단 critic이 양쪽 반대(2/10)면 자동 hold.</p>
+
+      <h3 id="s1a">Team A · Strategy &amp; Vision</h3>
+      <div class="panel-team-header">
+        <span class="tag">A</span>
+        <div>
+          <h3 style="margin:0">Strategy</h3>
+          <div class="footnote">narrative · UX motion · demo story · 룰/마감 · VC 시점 비판</div>
+        </div>
+      </div>
+      <div class="grid grid-2">
+        <article class="persona lead">
+          <div class="avatar" style="background:linear-gradient(135deg,#dc382d,#f06b62)">EP</div>
+          <div>
+            <div class="name">Eunha Park <span class="badge lead">LEAD</span></div>
+            <div class="role">Head of Product Strategy · A1</div>
+            <div class="duties">VSD 2026 win-condition, 7-surface narrative, panel chair</div>
+            <div class="quote">"심사위원이 데모 60초 안에 '잠깐 이거 챗봇이 아닌데?'를 느끼지 못하면 진다."</div>
+          </div>
+        </article>
+        <article class="persona critic">
+          <div class="avatar" style="background:linear-gradient(135deg,#ffd60a,#a07c00)">MR</div>
+          <div>
+            <div class="name">Marcus Reed <span class="badge critic">DEVIL</span></div>
+            <div class="role">Devil's Advocate · ex-VC · A2</div>
+            <div class="duties">모든 제안에 KPI 반론, "wow처럼 보이나 실제로 wow한가" 검증</div>
+            <div class="quote">"화면에 안 보이는 것은 비용이다. 측정 가능한 변화 못 만들면 빼라."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#bf5af2,#7d3aa3)">LC</div>
+          <div>
+            <div class="name">Liana Cho</div>
+            <div class="role">UX Architect · A3</div>
+            <div class="duties">7-surface 시각 일관성, motion token system, 60fps gate</div>
+            <div class="quote">"contribution bar는 살아있어야 한다. 정적 차트는 죽은 차트다."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#64d2ff,#3a8ab3)">DY</div>
+          <div>
+            <div class="name">Daichi Yamamoto</div>
+            <div class="role">Demo Storyteller · A4</div>
+            <div class="duties">≤3-min demo 시나리오, narrative arc, screen recording</div>
+            <div class="quote">"thesis는 60초 안에. 나머지 2분은 surface 6개 빠르게 도는 montage."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#30d158,#1f8c3c)">SL</div>
+          <div>
+            <div class="name">Sara Lindqvist</div>
+            <div class="role">Hackathon Compliance Officer · A5</div>
+            <div class="duties">룰, 마감, Google Form, license, public repo 상태</div>
+            <div class="quote">"23:59 UTC 2026-06-01. license, public repo, form. 외엔 D-2 이후 손대지 않는다."</div>
+          </div>
+        </article>
+      </div>
+
+      <h3 id="s1b">Team B · SOTA Execution</h3>
+      <div class="panel-team-header b">
+        <span class="tag">B</span>
+        <div>
+          <h3 style="margin:0">Engineering</h3>
+          <div class="footnote">Rust 백엔드 · 검색 품질 · 프론트 모션 · 성능/보안 critic</div>
+        </div>
+      </div>
+      <div class="grid grid-2">
+        <article class="persona lead b">
+          <div class="avatar" style="background:linear-gradient(135deg,#64d2ff,#3a8ab3)">HT</div>
+          <div>
+            <div class="name">Hiroshi Tanaka <span class="badge lead-b">LEAD</span></div>
+            <div class="role">Principal Engineer · B1</div>
+            <div class="duties">Qdrant 1.18 SOTA 통합 총괄, invariant 수호자</div>
+            <div class="quote">"<code>lens_search</code>를 Query API로 옮긴다. 그 위에 모든 새 surface가 산다."</div>
+          </div>
+        </article>
+        <article class="persona critic">
+          <div class="avatar" style="background:linear-gradient(135deg,#ffd60a,#a07c00)">AK</div>
+          <div>
+            <div class="name">Aisha Khan <span class="badge critic">CRITIC</span></div>
+            <div class="role">Performance &amp; Security Critic · B2</div>
+            <div class="duties">SEC-002/003/004 차단, 성능 회귀 거부, schema-lock 강제</div>
+            <div class="quote">"SEC-003 path containment 없으면 ship 금지. 마감 직전 reindex 금지."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#dc382d,#f06b62)">FW</div>
+          <div>
+            <div class="name">Felix Wagner</div>
+            <div class="role">Rust Backend Lead · B3</div>
+            <div class="duties">indexer.rs 모듈 분할, 6th vector 통합, dual-write</div>
+            <div class="quote">"schema 변경은 새 collection으로. dual-write feature flag. 롤백 가능."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#bf5af2,#7d3aa3)">PS</div>
+          <div>
+            <div class="name">Priya Subramaniam</div>
+            <div class="role">Search Quality Lead · B4</div>
+            <div class="duties">BM25 sparse, late-interaction, RRF/MMR, eval harness</div>
+            <div class="quote">"BM25 + MaxSim 둘 다 켜라. nDCG +25% 가능한데 안 하는 건 sin이다."</div>
+          </div>
+        </article>
+        <article class="persona">
+          <div class="avatar" style="background:linear-gradient(135deg,#30d158,#1f8c3c)">MS</div>
+          <div>
+            <div class="name">Min-jae Seo</div>
+            <div class="role">Frontend WOW Engineer · B5</div>
+            <div class="duties">Time Machine motion, Topology gateway, Lens live contribution</div>
+            <div class="quote">"60fps 깨지면 모든 WOW가 cheap가 된다. CPU 양보 못 해."</div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============================ §2 OPEN CONFLICTS ============================ -->
+    <section id="s2">
+      <h2><span class="num">§2</span> Open Conflicts · 5건 (D-7까지 미해결 유지)</h2>
+      <p class="lede">v1의 가장 큰 결함 — panel이 너무 빨리 합의했다. v2는 <b>5개 충돌을 의도적으로 미해결로 노출</b>한다. D-7 (2026-05-25) standup에서 강제 결정. 그때까지 양쪽 입장이 보고서에 살아있다.</p>
+
+      <div class="conflict">
+        <span class="clabel">CONFLICT 01 · 자원 분배</span>
+        <h4>Late-interaction CPU 부담 vs 60fps motion</h4>
+        <p style="font-size:13.5px;margin-top:2px">KICK 02 (<code>content_late</code>)와 WOW-1/2 motion이 같은 머신에서 동시에 돌면 누가 양보? indexing 중 Topology pulse가 죽으면 데모 망함. indexing을 데모 1시간 전 끝내면 해결되지만, "live" 인상이 약화된다.</p>
+        <div class="sides">
+          <div class="side a">
+            <div class="who">B4 Priya · Search Quality</div>
+            "MaxSim rerank가 데모의 ranking quality wow를 결정한다. CPU는 spawn_blocking + Semaphore(n/2)로 충분히 분리 가능. 양보 못 함."
+          </div>
+          <div class="vs">⚡</div>
+          <div class="side b">
+            <div class="who">B5 Min-jae · Frontend WOW</div>
+            "60fps 깨진 demo는 모든 wow를 죽인다. KICK 02는 데모 머신에서 인덱싱 중엔 disable. 인덱싱은 D-1 종료."
+          </div>
+        </div>
+        <div class="resolve"><b>Resolve by D-7</b> · Felix(B3)가 ONNX EP를 CoreML로 (KICK 11) 옮긴 후 CPU 부하 실측. CPU 사용률 ≤40% 유지되면 Priya 안, 초과면 Min-jae 안. <b>Decision-maker</b>: B1 Hiroshi (tie-break).</div>
+      </div>
+
+      <div class="conflict">
+        <span class="clabel">CONFLICT 02 · 데모 길이</span>
+        <h4>3분 cap (brief 한계) vs 90초 압축 (impact)</h4>
+        <p style="font-size:13.5px;margin-top:2px">VSD 2026 brief는 <b>≤3min</b>. 2025년엔 60s였다. 길게 쓰면 surface 다 보여줄 수 있지만, 짧을수록 viral. 60s thesis 후 90초로 끝낼 것인가, 그대로 3분?</p>
+        <div class="sides">
+          <div class="side a">
+            <div class="who">A4 Daichi · Demo Storyteller</div>
+            "3분 전체 사용. surface 7개를 24초씩 도는 montage가 'breadth' 인상을 준다. 60초 안에 thesis만 박으면 wow가 빠진다."
+          </div>
+          <div class="vs">⚡</div>
+          <div class="side b">
+            <div class="who">A2 Marcus · Devil's Advocate</div>
+            "지난 5년 VSD 우승작 평균 길이가 짧다. 90초가 더 강렬하다. 3분짜리는 심사위원이 1.5분에 닫는다. 60s thesis + 30s killer surface 1개로 끝내라."
+          </div>
+        </div>
+        <div class="resolve"><b>Resolve by D-9</b> · A1 Eunha 주재로 양 안 모두 녹화(draft 1) → 외부 5명에게 blind test. 더 많은 사람이 thesis를 즉시 이해한 안 채택. <b>Decision-maker</b>: A1 Eunha (chair).</div>
+      </div>
+
+      <div class="conflict">
+        <span class="clabel">CONFLICT 03 · narrative vs code quality</span>
+        <h4>D-3 freeze 이후 README 카피 손볼 권리</h4>
+        <p style="font-size:13.5px;margin-top:2px">D-3 schema lock + D-1 ship freeze. 그 사이 A팀이 landing copy / README narrative를 "이게 더 좋다"는 이유로 손대도 되나? B팀은 "어떤 텍스트 변경도 docs/architecture.md → CLAUDE.md 무결성을 깰 수 있다"고 본다.</p>
+        <div class="sides">
+          <div class="side a">
+            <div class="who">A1 Eunha · Strategy Lead</div>
+            "심사위원이 보는 첫 화면이 landing page다. D-2까지 카피 polish는 freeze 적용 대상 아니다. README narrative도 product narrative의 일부다."
+          </div>
+          <div class="vs">⚡</div>
+          <div class="side b">
+            <div class="who">B1 Hiroshi · Engineering Lead</div>
+            "README의 surface 카운트, schema 설명, deferred 리스트는 코드와 동기화 보장 영역이다. text-only 변경도 D-3 이후엔 PR 리뷰 강제."
+          </div>
+        </div>
+        <div class="resolve"><b>Resolve by D-5</b> · landing page 카피(<code>index.html</code> 루트)는 D-1까지 자유, README/CLAUDE.md/docs/* 는 D-3 freeze 적용. 명시적 분리로 합의 가능. <b>Decision-maker</b>: panel 합의 — 분리 안에 양 측 모두 동의 예상.</div>
+      </div>
+
+      <div class="conflict">
+        <span class="clabel">CONFLICT 04 · license 표기 vs UX 청정</span>
+        <h4>Apache-2.0 + Qdrant logo demo 안 노출 강제</h4>
+        <p style="font-size:13.5px;margin-top:2px">VSD 2025 룰에 "Qdrant 사용 명시" 조항 있음(2026도 추정). Outro에 logo + license 표기는 안전. 그런데 in-product에도 띄울까? Sara는 안전을 원하고 Liana는 UX를 지킨다.</p>
+        <div class="sides">
+          <div class="side a">
+            <div class="who">A5 Sara · Compliance</div>
+            "About 메뉴 + 데모 영상 outro + README footer 3곳. 한 곳도 빠지면 disqualification 위험. 데모 자체엔 안 띄워도 된다."
+          </div>
+          <div class="vs">⚡</div>
+          <div class="side b">
+            <div class="who">A3 Liana · UX</div>
+            "About + footer + outro까지면 충분. 데모 안 chrome에 logo 띄우면 'sponsor' 느낌. 작품의 brand voice가 손상."
+          </div>
+        </div>
+        <div class="resolve"><b>Resolve by D-3</b> · Sara 안 채택. 3-points-of-attribution이 panel 합의. 데모 in-product UI엔 logo 없음. <b>Likely consensus</b>.</div>
+      </div>
+
+      <div class="conflict">
+        <span class="clabel">CONFLICT 05 · invariant 깨기</span>
+        <h4>"polling not notify" invariant 깰지 (KICK 19 SSE streaming)</h4>
+        <p style="font-size:13.5px;margin-top:2px">README/CLAUDE.md의 명시적 invariant: <i>"polling is intentional, not a bug"</i>. Qdrant 1.18에 SSE/streaming search가 있다면 12s polling을 server-push로 교체 가능 — recall latency 12s → 200ms. 그런데 invariant를 깨는 결정은 누가 하나?</p>
+        <div class="sides">
+          <div class="side a">
+            <div class="who">B4 Priya · Search Quality</div>
+            "12s lag는 '약속한 wow'가 늦게 도착한다는 뜻. 200ms recall은 'magic feels alive'. invariant는 docs 갱신해서 정당화 가능."
+          </div>
+          <div class="vs">⚡</div>
+          <div class="side b">
+            <div class="who">B2 Aisha · Critic</div>
+            "invariant는 4가지 이유로 박혔다(fd leak, FSEvent 권한, 단순성, 결정론). SSE도 결국 watcher고, 그 4가지 중 셋이 다시 살아난다. 마감 14일에 invariant 깨는 건 hold."
+          </div>
+        </div>
+        <div class="resolve"><b>Resolve by D-7</b> · B2 hold권 행사. KICK 19는 <span class="ship-tag post">POST-HACKATHON</span>으로 명시 cast. v2에는 spec만 남기고 구현 0. <b>Decision-maker</b>: B2 critic veto (invariant 보호).</div>
+      </div>
+    </section>
+
+    <!-- ============================ §3 TECH KICKS ============================ -->
+    <section id="s3">
+      <h2><span class="num">§3</span> Tech Kicks · 19 SOTA items</h2>
+      <p class="lede">v1의 10개 → v2의 19개. <b>꼭 빼야 할 이유가 없는 사전조사 항목들을 모두 부활.</b> 각 KICK은 panel split vote 표기. Ship tag: <span class="ship-tag ship">SHIP</span> = 통과 (≥7/10), <span class="ship-tag cond">COND</span> = 조건부 (≥6/10 + eval gate), <span class="ship-tag hold">HOLD</span> = critic veto, <span class="ship-tag post">POST</span> = 의도적 deferral.</p>
+
+      <h3 id="k01">Core hybrid retrieval · K01–K06</h3>
+
+      <article id="k01" class="kick" data-num="KICK 01">
+        <h4>Single-call Multi-stage Query API + RRF <span class="ship-tag ship">SHIP</span></h4>
+        <p>현 <code>lens_search</code>의 5 parallel cosine + Rust weighted-sum (<code>indexer.rs:539-615</code>)을 Qdrant 1.10+ Query API의 <code>prefetch</code> + <code>fusion: rrf</code>로 옮긴다. 라운드트립 5→1, sparse/late-interaction 같은 호출에 prefetch.</p>
+        <div class="impact-row">
+          <span class="impact"><b>Round-trips:</b> 5 → 1</span>
+          <span class="impact"><b>Effort:</b> ~6h · indexer.rs ~150 LOC</span>
+          <span class="impact"><b>Source:</b> research/01 · research/04 §6</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag strong">9 — 1</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:90%">FOR 9</div><div class="against" style="flex-basis:10%">1</div></div>
+        </div>
+        <div class="vote-detail"><b class="for">FOR:</b> Eunha · Liana · Daichi · Sara · Hiroshi · Felix · Priya · Min-jae · Aisha · &nbsp; <b class="against">AGAINST:</b> Marcus ("user invisible")</div>
+        <div class="dissent">
+          <div class="who">Marcus (A2)</div>
+          기술적으로 옳다. 그런데 시청자가 데모에서 "이게 1번 호출이라는 걸" 느낄 수 없다. RT 5→1은 latency 차이가 50ms 미만일 것. 비용 대비 demo wow 부족. 채택하되 demo script에 등장시키지 마라.
+        </div>
+      </article>
+
+      <article id="k02" class="kick" data-num="KICK 02">
+        <h4>6번째 named vector <code>content_late</code> — late-interaction MaxSim <span class="ship-tag cond">COND</span></h4>
+        <p>같은 BGE-small token-level 출력을 multivector point로 저장. HNSW disabled, rerank-only. 새 모델 0, fastembed-rs 변경 0.</p>
+        <blockquote>"Late interaction models like ColBERT preserve token-level embeddings and compute MaxSim at query time."<span class="src">research/02 · qdrant.tech/articles/late-interaction-models/</span></blockquote>
+        <div class="impact-row">
+          <span class="impact"><b>Target:</b> nDCG@10 +15% [GATE]</span>
+          <span class="impact"><b>Storage:</b> +115 MB at N=10k (after SQ)</span>
+          <span class="impact"><b>Effort:</b> ~10h</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag split">6 — 4</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:60%">FOR 6</div><div class="against" style="flex-basis:40%">4</div></div>
+        </div>
+        <div class="vote-detail"><b class="for">FOR:</b> Eunha · Liana · Hiroshi · Felix · Priya · Sara · &nbsp; <b class="against">AGAINST:</b> Marcus · Aisha · Min-jae · Daichi</div>
+        <div class="dissent">
+          <div class="who">Aisha + Min-jae</div>
+          token noise + CPU 충돌. D-8 eval gate에서 nDCG +15% 미달 → revert. 데모 머신 인덱싱 중 60fps 깨지면 hold. CONFLICT 01과 동일 축.
+        </div>
+        <div class="dissent">
+          <div class="who">Daichi</div>
+          데모에서 보여줄 surface가 아니다. 채택은 동의 — 단 demo script 분량 0.
+        </div>
+      </article>
+
+      <article id="k03" class="kick" data-num="KICK 03">
+        <h4>Server-side BM25 sparse on <code>path</code> &amp; <code>tool</code> <span class="ship-tag ship">SHIP</span></h4>
+        <p>Qdrant 1.15.2+가 server-side tokenize. fastembed-rs 의존 없음. README의 BM42 deferral을 우회. 토큰 성격의 path/tool에선 dense 압도.</p>
+        <pre><code>"sparse_vectors": {
+  "path_sparse": { "modifier": "idf" },
+  "tool_sparse": { "modifier": "idf" }
+}</code></pre>
+        <div class="impact-row">
+          <span class="impact"><b>Target:</b> MRR +30% on filename queries</span>
+          <span class="impact"><b>Effort:</b> ~3h</span>
+          <span class="impact"><b>Source:</b> research/04 §2,§8</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag unanimous">10 — 0</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:100%">FOR 10 · unanimous</div></div>
+        </div>
+        <div class="vote-detail">유일한 합법적 만장일치 — fastembed 의존 변경 0, schema additive, demo visible</div>
+        <div class="endorse">
+          <div class="who">Marcus (A2)</div>
+          이건 데모에서 보인다. "edit auth.js" 검색이 dense-only 대비 1위로 뜨는 frame이 명시적 wow. 진짜 만장일치 가능한 유일한 항목.
+        </div>
+      </article>
+
+      <article id="k04" class="kick" data-num="KICK 04">
+        <h4>MMR diversification + Relevance Feedback (recommendation ≠ retrieval) <span class="ship-tag cond">COND</span></h4>
+        <p>Lens 결과에 <code>diversity=0.4</code>. Mix &amp; Match 카드에 👍/👎 → server-side anchor 갱신. VSD brief "recommendation" 직격.</p>
+        <div class="impact-row">
+          <span class="impact"><b>VSD fit:</b> direct hit</span>
+          <span class="impact"><b>Effort:</b> ~5h</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag split">7 — 3</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:70%">FOR 7</div><div class="against" style="flex-basis:30%">3</div></div>
+        </div>
+        <div class="vote-detail"><b class="for">FOR:</b> Eunha · Liana · Sara · Hiroshi · Felix · Priya · Min-jae · &nbsp; <b class="against">AGAINST:</b> Marcus · Aisha · Daichi</div>
+        <div class="dissent">
+          <div class="who">Marcus + Daichi</div>
+          Relevance Feedback UI가 demo 3분 안에 자연스럽게 등장하지 못하면 cost. Daichi가 storyboard에 명시적으로 끼우지 못하면 RF는 빼고 MMR만 ship.
+        </div>
+      </article>
+
+      <article id="k05" class="kick" data-num="KICK 05">
+        <h4>Scalar quantization + signed snapshots <span class="ship-tag ship">SHIP</span></h4>
+        <p>6개 벡터에 SQ — 4× 압축. Snapshot 파일에 SHA-256 + issuer metadata. SEC-003 path containment 보완 라인.</p>
+        <pre><code>// snapshot envelope
+{ "qdrant_snapshot": "&lt;blob&gt;",
+  "sig": { "sha256": "...", "issued_by": "memex/0.2.0",
+           "issued_at": "...", "schema_version": 2 } }</code></pre>
+        <div class="impact-row">
+          <span class="impact"><b>Storage:</b> -75% vectors</span>
+          <span class="impact"><b>Security:</b> tamper detection</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag strong">9 — 1</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:90%">FOR 9</div><div class="against" style="flex-basis:10%">1</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Liana ("snapshot UX 처음부터 다시 그려야 함, 시간 부족")</div>
+      </article>
+
+      <article id="k06" class="kick" data-num="KICK 06">
+        <h4>Async ONNX + cross-session embed batch=32 <span class="ship-tag ship">SHIP</span></h4>
+        <p>ONNX inference → <code>tokio::task::spawn_blocking</code> + <code>Semaphore(num_cpus/2)</code>. <code>bulk_index</code> per-session loop → chunk-of-32 batch (analysis/05 QW-1).</p>
+        <div class="impact-row">
+          <span class="impact"><b>Cold scan:</b> 3-4× at N=80, ~5× at N=10k</span>
+          <span class="impact"><b>UI:</b> indexing 중 click freeze 사라짐</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag unanimous">10 — 0</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:100%">FOR 10 · unanimous</div></div>
+        </div>
+        <div class="vote-detail">두 번째 합법적 만장일치 — 회귀 위험 0, perf 개선 측정 가능</div>
+      </article>
+
+      <h3 id="k07">Perf &amp; cache · K07–K10</h3>
+
+      <article id="k07" class="kick" data-num="KICK 07">
+        <h4>Topology insights cache <code>(root, max_mtime)</code> <span class="ship-tag ship">SHIP</span></h4>
+        <p><code>compute_insights</code>를 mtime-keyed memoize (<code>indexer.rs:894-901</code>). Topology N=10k에서 17 min → 200 ms (analysis/05 QW-6).</p>
+        <div class="vote">
+          <span class="vote-tag strong">9 — 1</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:90%">FOR 9</div><div class="against" style="flex-basis:10%">1</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Aisha ("cache invalidation 버그 잠재")</div>
+      </article>
+
+      <article id="k08" class="kick" data-num="KICK 08">
+        <h4>Predict pivot-parse LRU (64 entries, mtime-keyed) <span class="ship-tag ship">SHIP</span></h4>
+        <p>neighbor 8 세션 재파싱(<code>indexer.rs:1342</code>)을 LRU로. per-prediction 300-900 ms → ~50 ms warm.</p>
+        <div class="vote">
+          <span class="vote-tag strong">9 — 1</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:90%">FOR 9</div><div class="against" style="flex-basis:10%">1</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Aisha (동일 우려)</div>
+      </article>
+
+      <article id="k09" class="kick" data-num="KICK 09">
+        <h4>Payload index on <code>schema_version</code> <span class="ship-tag ship">SHIP</span></h4>
+        <p>미래 schema 진화 대비. dual-write/read 토글의 토대. <code>memex_sessions_v2</code> rollout 시 v1과 동시 운용 가능.</p>
+        <div class="vote">
+          <span class="vote-tag strong">8 — 2</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:80%">FOR 8</div><div class="against" style="flex-basis:20%">2</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Marcus · Daichi ("YAGNI, 다음 hackathon에 추가")</div>
+      </article>
+
+      <article id="k10" class="kick" data-num="KICK 10">
+        <h4>MUVERA when GA — guarded enable <span class="ship-tag cond">COND</span></h4>
+        <p>Qdrant 1.18+에 MUVERA가 GA되면 <code>content_late</code>를 MUVERA-compressed로 교체. 데모 시점엔 raw multivector(deterministic) 유지. <i>research/04 §5</i>.</p>
+        <div class="vote">
+          <span class="vote-tag split">6 — 4</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:60%">FOR 6</div><div class="against" style="flex-basis:40%">4</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Aisha · Marcus · Daichi · Sara ("D-3 schema lock 위반 위험")</div>
+        <div class="dissent">
+          <div class="who">Aisha</div>
+          GA 확인 시점이 D-7 이전이어야 ship 가능. D-7 후 GA 발견 시엔 자동 POST-HACKATHON으로 cast.
+        </div>
+      </article>
+
+      <h3 id="k11">Advanced primitives (v2 부활) · K11–K15</h3>
+
+      <article id="k11" class="kick" data-num="KICK 11">
+        <h4>CoreML execution provider for ONNX <span class="ship-tag ship">SHIP</span></h4>
+        <p>macOS arm64에서 ONNX Runtime의 CoreML EP 사용. CPU/ANE 가속으로 임베딩 2-3× 빨라짐. CONFLICT 01 해결의 키 (CPU 부하 ↓).</p>
+        <pre><code>// fastembed init
+TextEmbedding::try_new(
+  InitOptions::new(EmbeddingModel::BGESmallENV15)
+    .with_execution_providers(vec![
+      ExecutionProvider::CoreML(CoreMLProvider::default()),
+      ExecutionProvider::CPU(CPUProvider::default()),
+    ])
+)</code></pre>
+        <div class="impact-row">
+          <span class="impact"><b>Speedup:</b> 2-3× embedding throughput on M-series</span>
+          <span class="impact"><b>Effort:</b> ~2h</span>
+          <span class="impact"><b>Source:</b> research/05 §macOS</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag strong">8 — 2</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:80%">FOR 8</div><div class="against" style="flex-basis:20%">2</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Aisha ("CoreML과 ANE 간 mismatch 사례 있음") · Sara ("non-macOS 호환 깨질까")</div>
+        <p class="footnote">v1에서 잘렸던 항목. 사용자 명시 비판 "꼭 빼야할 이유 없는 것"의 첫 사례 — 부활.</p>
+      </article>
+
+      <article id="k12" class="kick" data-num="KICK 12">
+        <h4>Discovery API true context pairs (positive, reference_negative) <span class="ship-tag cond">COND</span></h4>
+        <p>현 Mix &amp; Match는 단순 anchor-only. Cossío 글의 진짜 의도는 (positive, reference_negative) <b>페어</b>가 hyperplane을 정의. v2에선 페어 dragging UI로 진화.</p>
+        <pre><code>// query
+{ "query": { "discover": {
+    "target": &lt;anchor_pos&gt;,
+    "context": [
+      { "positive": &lt;sess_a&gt;, "negative": &lt;sess_b&gt; },
+      { "positive": &lt;sess_c&gt;, "negative": &lt;sess_d&gt; }
+    ] } } }</code></pre>
+        <div class="impact-row">
+          <span class="impact"><b>UX:</b> WOW-5 splash 더 정확</span>
+          <span class="impact"><b>Effort:</b> ~6h (UI + backend)</span>
+          <span class="impact"><b>Source:</b> research/02 · discovery-search 글</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag split">7 — 3</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:70%">FOR 7</div><div class="against" style="flex-basis:30%">3</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Aisha · Marcus · Daichi ("UI 복잡도 ↑, 데모에서 페어 dragging이 쉬워 보일지")</div>
+      </article>
+
+      <article id="k13" class="kick" data-num="KICK 13">
+        <h4>Group-by query + score boosting formula (recency) <span class="ship-tag ship">SHIP</span></h4>
+        <p>Qdrant 1.16+ <code>group_by</code> — 결과를 <code>project_name</code>으로 그룹핑. <code>score_boost_formula</code>로 <code>start_ts</code> recency boost. "최근 작업이 위에" 자연스러운 ranking.</p>
+        <pre><code>"query": { ... },
+"group_by": "project_name", "group_size": 3, "limit": 10,
+"score_formula": "score * exp(-(now - start_ts) / 86400 / 30)"  // 30d decay</code></pre>
+        <div class="impact-row">
+          <span class="impact"><b>UX:</b> "최근성" 자연스러운 inclusion</span>
+          <span class="impact"><b>Effort:</b> ~4h</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag strong">9 — 1</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:90%">FOR 9</div><div class="against" style="flex-basis:10%">1</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Marcus ("recency bias로 long-term memory 일부 가려질 수 있음 — UX 토글 필요")</div>
+      </article>
+
+      <article id="k14" class="kick" data-num="KICK 14">
+        <h4>Strict filtering during HNSW search <span class="ship-tag ship">SHIP</span></h4>
+        <p>Qdrant 1.16+ <code>filter</code>가 HNSW 통과 후가 아니라 그래프 탐색 <b>중</b> 적용. <code>has_errors=true</code>, <code>project_name</code> 필터에서 결과 품질 큰 차이.</p>
+        <pre><code>{ "filter": { ... },
+  "params": { "exact": false, "strict": true,
+              "hnsw_ef": 128 } }</code></pre>
+        <div class="impact-row">
+          <span class="impact"><b>Recall@10:</b> +20% on filtered queries</span>
+          <span class="impact"><b>Effort:</b> ~2h</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag strong">9 — 1</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:90%">FOR 9</div><div class="against" style="flex-basis:10%">1</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Aisha ("strict 모드 latency 측정 필요")</div>
+      </article>
+
+      <article id="k15" class="kick" data-num="KICK 15">
+        <h4>Per-vector HNSW tuning (m, ef_construct, ef_search) <span class="ship-tag cond">COND</span></h4>
+        <p>모든 벡터에 default를 쓰는 건 production이 아니다. <code>content</code>(고차원 의미)는 <code>m=24, ef_c=200</code>, <code>tool</code>(짧고 노이지)은 <code>m=12, ef_c=64</code>. 벡터별 최적화.</p>
+        <div class="impact-row">
+          <span class="impact"><b>Latency:</b> -15% on cold queries</span>
+          <span class="impact"><b>Index size:</b> ±0 (재인덱스 필요)</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag split">6 — 4</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:60%">FOR 6</div><div class="against" style="flex-basis:40%">4</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Marcus · Daichi · Aisha · Sara ("측정 안 되면 차이 없어 보임, 시간 비용 큼")</div>
+      </article>
+
+      <h3 id="k16">Deep tuning &amp; deferrals · K16–K19</h3>
+
+      <article id="k16" class="kick" data-num="KICK 16">
+        <h4>Datetime native index on <code>start_ts</code> <span class="ship-tag ship">SHIP</span></h4>
+        <p>Qdrant 1.15+ datetime index. 현 integer range 대신 native. KICK 13의 recency formula에 정밀도 향상, 미래 timeline 기능 토대.</p>
+        <div class="vote">
+          <span class="vote-tag strong">8 — 2</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:80%">FOR 8</div><div class="against" style="flex-basis:20%">2</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Aisha · Sara ("schema migration 추가, D-3 freeze 압박")</div>
+      </article>
+
+      <article id="k17" class="kick" data-num="KICK 17">
+        <h4>WAL + memmap_threshold tuning <span class="ship-tag cond">COND</span></h4>
+        <p><code>storage.memmap_threshold</code>를 데모 머신 RAM 50%로 설정. WAL <code>flush_interval_sec=5</code>로 throughput vs durability 균형. 데모 머신 메모리 부담 ↓.</p>
+        <div class="vote">
+          <span class="vote-tag split">6 — 4</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:60%">FOR 6</div><div class="against" style="flex-basis:40%">4</div></div>
+        </div>
+        <div class="vote-detail"><b class="against">AGAINST:</b> Marcus · Daichi · Liana · Min-jae ("user invisible")</div>
+        <div class="dissent">
+          <div class="who">Min-jae (FE)</div>
+          데모 머신에서 정말 RAM 부족하면 motion 60fps 깨진다 — 그럼 ship. 그 외엔 비용. perf budget test로 결정.
+        </div>
+      </article>
+
+      <article id="k18" class="kick" data-num="KICK 18">
+        <h4>SPLADE via <code>SparseModel::SPLADEPPV1</code> (추가 sparse) <span class="ship-tag cond">COND</span></h4>
+        <p>fastembed-rs 5.13.4에 <b>이미 노출돼 있는데 안 쓰고 있다</b>. BM25 외 SPLADE를 <code>content_sparse</code>로 추가하면 lexical+learned-sparse hybrid. <i>research/04 §3</i>.</p>
+        <pre><code>SparseTextEmbedding::try_new(
+  SparseInitOptions::new(SparseModel::SPLADEPPV1))</code></pre>
+        <div class="impact-row">
+          <span class="impact"><b>nDCG:</b> +5-10% on top of BM25</span>
+          <span class="impact"><b>Storage:</b> +~50 MB at N=10k</span>
+          <span class="impact"><b>Effort:</b> ~4h</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag split">5 — 5</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:50%">FOR 5</div><div class="against" style="flex-basis:50%">5</div></div>
+        </div>
+        <div class="vote-detail"><b class="for">FOR:</b> Hiroshi · Felix · Priya · Liana · Min-jae · &nbsp; <b class="against">AGAINST:</b> Eunha · Marcus · Daichi · Aisha · Sara</div>
+        <div class="dissent">
+          <div class="who">Tied vote → Chair tie-break</div>
+          5-5. <b>Chair A1 Eunha 결정: COND</b> — D-9까지 SPLADE만 따로 A/B eval, BM25 단독 대비 의미있는 차이가 있을 때만 ship. 그 외 D-9에 자동 POST.
+        </div>
+      </article>
+
+      <article id="k19" class="kick" data-num="KICK 19">
+        <h4>SSE/streaming proactive recall (12s polling 제거) <span class="ship-tag hold">HOLD</span></h4>
+        <p>CONFLICT 05 결과 항목. invariant "polling is intentional" 깨야 함. B2 Aisha가 critic veto 행사. v2에 spec만 남기고 구현 0.</p>
+        <div class="impact-row">
+          <span class="impact"><b>Latency:</b> 12s → ~200ms</span>
+          <span class="impact"><b>Veto by:</b> Aisha (B2 critic)</span>
+        </div>
+        <div class="vote">
+          <span class="vote-tag split">2 — 8</span>
+          <div class="vote-bar"><div class="for" style="flex-basis:20%">FOR 2</div><div class="against" style="flex-basis:80%">8</div></div>
+        </div>
+        <div class="vote-detail"><b class="for">FOR:</b> Priya · Min-jae · &nbsp; <b class="against">AGAINST:</b> 모두 (invariant 깨기 too risky for 14-day window)</div>
+        <div class="endorse">
+          <div class="who">Aisha (B2)</div>
+          이 hold는 hackathon 끝나면 즉시 issue로 옮긴다. POST-D-0에 진지하게 검토할 가치 있음. 다만 지금은 아님.
+        </div>
+      </article>
+
+      <h4>Ship-tag tally</h4>
+      <ul style="font-size:13.5px">
+        <li><span class="ship-tag ship">SHIP</span> × <b>10</b> · K01, K03, K05, K06, K07, K08, K09, K11, K13, K14, K16</li>
+        <li><span class="ship-tag cond">COND</span> · eval/perf gate after which decided · <b>7</b> · K02, K04, K10, K12, K15, K17, K18</li>
+        <li><span class="ship-tag hold">HOLD</span> · critic veto · <b>1</b> · K19</li>
+        <li><span class="ship-tag post">POST</span> · 의도적 POST-D-0 · K19로 자연 cast</li>
+      </ul>
+      <p class="footnote">v1은 "10/10 만장일치 6건"이라고 적었지만 실제로 그건 panel이 작동하지 않았다는 증거였다. v2의 진짜 만장일치는 2건뿐(K03, K06). 그 외엔 모두 split. 이게 정상이다.</p>
+    </section>
+
+    <!-- ============================ §4 VISUAL WOW ============================ -->
+    <section id="s4">
+      <h2><span class="num">§4</span> Visual WOW — 5 prototypes</h2>
+      <p class="lede">v1과 동일. (시각 와우는 사용자 비판의 대상이 아니었다.) 모두 새 dependency 없이 60fps 목표.</p>
+
+      <h3>WOW-1 · Time Machine 2.0 — Heat Trail</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌──────────────────────────── Memex ────────────────────────────┐</span>
+<span class="dim">│</span>          <span class="accent-2">╭──────────────╮</span>                                     <span class="dim">│</span>
+<span class="dim">│</span>          <span class="accent-2">│ #80  today    │</span> <span class="accent-4">∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿∿</span>             <span class="dim">│</span>
+<span class="dim">│</span>          <span class="accent-2">╰──────────────╯</span>                       <span class="accent-4">∿∿∿∿</span>          <span class="dim">│</span>
+<span class="dim">│</span>            <span class="dim">│ #79  yesterday</span> <span class="accent">●━━━━━━━━━━━━━━━━━━━━━●</span>             <span class="dim">│</span>
+<span class="dim">│</span>            <span class="dim">╰──────────────╯</span>     <span class="accent">sim 0.93 · content+code</span>     <span class="dim">│</span>
+<span class="dim">│</span>              <span class="dim">│ #78  mon       │   ◀ hover</span>                       <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent-3">↑↓</span> time-travel    <span class="accent-3">⏎</span> open   <span class="accent-3">wheel</span> scroll   <span class="accent-3">⌘K</span> lens   <span class="dim">│</span>
+<span class="dim">└──────────────────────────────────────────────────────────────┘</span></div></div>
+
+      <h3>WOW-2 · Topology Galaxy — Gateway Nodes</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌────────────────── Topology Galaxy ──────────────────┐</span>
+<span class="dim">│</span>     <span class="accent-3">●●●</span>                                  <span class="accent-5">●●</span>     <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent-3">●● ●●</span>   <span class="accent-2">═══════════════════</span>      <span class="accent-5">●●●●●</span>      <span class="dim">│</span>
+<span class="dim">│</span>     <span class="accent-3">●●●</span>   <span class="accent-2">bridge sim 0.91</span>       <span class="accent-5">●● ●●</span>          <span class="dim">│</span>
+<span class="dim">│</span>      project-marketing                project-yc     <span class="dim">│</span>
+<span class="dim">│</span>                  <span class="accent-4">╭─── GAP ───╮</span>                      <span class="dim">│</span>
+<span class="dim">│</span>                  <span class="accent-4">│ ↔ redesign │</span>                      <span class="dim">│</span>
+<span class="dim">│</span>                  <span class="accent-4">│ sim 0.97   │</span>                      <span class="dim">│</span>
+<span class="dim">│</span>                  <span class="accent-4">│ no bridge  │</span>                      <span class="dim">│</span>
+<span class="dim">│</span>                  <span class="accent-4">╰────────────╯</span>                      <span class="dim">│</span>
+<span class="dim">└─────────────────────────────────────────────────────┘</span></div></div>
+
+      <h3>WOW-3 · Lens Live Contribution Bars (KICK 03 효과 시각화)</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌── Lens · "tauri build failed missing icons" ──────────────────┐</span>
+<span class="dim">│</span> <span class="accent">#1</span> <span class="fg">memex · 'icons/ symlink fix'</span>                              <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent">██████████</span><span class="accent-4">████</span><span class="accent-2">██</span><span class="accent-5">██</span><span class="accent-3">█</span>                                  <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent">content .42</span> <span class="accent-4">error .19</span> <span class="accent-2">code .09</span> <span class="accent-5">path .08</span> <span class="accent-3">tool .04</span>     <span class="dim">│</span>
+<span class="dim">│</span> <span class="accent">#2</span> <span class="fg">memex · 'bundle macos icons missing'</span>                      <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent">█████████</span><span class="accent-4">██████</span><span class="accent-2">█</span><span class="accent-5">██</span>                                  <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent">content .35</span> <span class="accent-4">error .28</span> <span class="accent-2">code .04</span> <span class="accent-5">path .07</span>              <span class="dim">│</span>
+<span class="dim">│</span> <span class="accent">#3</span> <span class="fg">project-yc · 'macos signing notarize'</span>                      <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent">██████</span><span class="accent-4">███</span><span class="accent-5">████████</span>                                  <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent">content .24</span> <span class="accent-4">error .12</span> <span class="accent-5">path .34</span>                       <span class="dim">│</span>
+<span class="dim">└───────────────────────────────────────────────────────────────┘</span></div></div>
+
+      <h3>WOW-4 · Predict Cinematic Panel</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌── Predict next actions · session #80 ──────────────────────────┐</span>
+<span class="dim">│</span> <span class="accent-2">2 of 6 neighbors matched · horizon 3 turns</span>                   <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent">┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐</span>                          <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent">│ Bash │ │ Edit │ │ Bash │ │ Read │</span>                          <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent">│cargo │ │.toml │ │ pnpm │ │README│</span>                          <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent">│ ▶ 67%│ │  33% │ │  21% │ │  18% │</span>                          <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent">└──────┘ └──────┘ └──────┘ └──────┘</span>                          <span class="dim">│</span>
+<span class="dim">│</span>    <span class="dim">▲ click → cinematic zoom → Replay</span>                          <span class="dim">│</span>
+<span class="dim">└────────────────────────────────────────────────────────────────┘</span></div></div>
+
+      <h3>WOW-5 · Discovery Splash — true context pairs (KICK 12)</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌── Mix &amp; Match · context pairs (KICK 12 enabled) ─────────────┐</span>
+<span class="dim">│</span>           <span class="accent-3">●</span> positive  ←──pair──→  <span class="accent">●</span> negative                <span class="dim">│</span>
+<span class="dim">│</span>          <span class="accent-3">●</span>   <span class="accent-3">●</span>                       <span class="accent">●</span>                       <span class="dim">│</span>
+<span class="dim">│</span>  <span class="accent-2">═══════════════════════</span> hyperplane (3D)                     <span class="dim">│</span>
+<span class="dim">│</span>           <span class="accent-3">●</span> positive  ←──pair──→  <span class="accent">●</span> negative                <span class="dim">│</span>
+<span class="dim">│</span>  emits →  <span class="accent-3">[card] [card] [card] [card] [card]</span>                <span class="dim">│</span>
+<span class="dim">│</span>            workspace-b · workspace-c · project-redesign ...    <span class="dim">│</span>
+<span class="dim">└────────────────────────────────────────────────────────────────┘</span></div></div>
+      <p class="footnote">WOW-5는 v1의 단일 anchor에서 v2의 진짜 context pair로 진화 — KICK 12 채택 시.</p>
+    </section>
+
+    <!-- ============================ §5 ARCH ============================ -->
+    <section id="s5">
+      <h2><span class="num">§5</span> Target Architecture (post-D-0)</h2>
+      <p class="lede">v1의 6-module split 유지. v2의 변화는 CoreML EP (KICK 11)와 server-side 기능들이 search.rs에 합쳐지는 모습.</p>
+      <div class="arch-wrap">
+<svg viewBox="0 0 920 540" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Memex target architecture (v2)">
+  <defs>
+    <linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dc382d" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#bf5af2" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="lg2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#64d2ff" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#64d2ff" stop-opacity=".05"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b95b3"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#dc382d"/>
+    </marker>
+  </defs>
+  <style>
+    .lbl { font-family: -apple-system,"Inter",sans-serif; font-size: 13px; fill: #e8eaf1; }
+    .lbl-sm { font-family: "JetBrains Mono",monospace; font-size: 10.5px; fill: #8b95b3; }
+    .lbl-title { font-family: -apple-system,"Inter",sans-serif; font-size: 12px; fill: #8b95b3; text-transform: uppercase; letter-spacing: .05em; }
+    .box { fill: #131826; stroke: #2a3658; stroke-width: 1; }
+    .box-accent { stroke: #dc382d; stroke-width: 1.5; }
+    .edge { stroke: #5d678a; stroke-width: 1.2; fill: none; }
+    .edge-hot { stroke: #dc382d; stroke-width: 1.8; fill: none; }
+  </style>
+  <rect x="20" y="220" width="180" height="80" rx="10" class="box"/>
+  <text x="110" y="245" text-anchor="middle" class="lbl-title">filesystem</text>
+  <text x="110" y="268" text-anchor="middle" class="lbl">~/.claude/projects/</text>
+  <text x="110" y="285" text-anchor="middle" class="lbl-sm">**/*.jsonl · append-only</text>
+  <rect x="240" y="100" width="160" height="60" rx="8" class="box"/>
+  <text x="320" y="125" text-anchor="middle" class="lbl">parser.rs</text>
+  <text x="320" y="143" text-anchor="middle" class="lbl-sm">Session · Turn · ToolCall</text>
+  <rect x="230" y="190" width="430" height="270" rx="14" fill="url(#lg1)" stroke="#dc382d" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="445" y="212" text-anchor="middle" class="lbl-title" style="fill:#dc382d">indexer/ (6 modules)</text>
+  <rect x="245" y="225" width="125" height="46" rx="6" class="box"/>
+  <text x="307" y="245" text-anchor="middle" class="lbl">embed.rs</text>
+  <text x="307" y="261" text-anchor="middle" class="lbl-sm">CoreML EP · K11</text>
+  <rect x="380" y="225" width="125" height="46" rx="6" class="box"/>
+  <text x="442" y="245" text-anchor="middle" class="lbl">schema.rs</text>
+  <text x="442" y="261" text-anchor="middle" class="lbl-sm">6 dense + 2-3 sparse</text>
+  <rect x="515" y="225" width="135" height="46" rx="6" class="box"/>
+  <text x="582" y="245" text-anchor="middle" class="lbl">crud.rs</text>
+  <text x="582" y="261" text-anchor="middle" class="lbl-sm">batch=32 · K06</text>
+  <rect x="245" y="285" width="125" height="46" rx="6" class="box box-accent"/>
+  <text x="307" y="305" text-anchor="middle" class="lbl">search.rs</text>
+  <text x="307" y="321" text-anchor="middle" class="lbl-sm">Query API · RRF · MMR</text>
+  <rect x="380" y="285" width="125" height="46" rx="6" class="box"/>
+  <text x="442" y="305" text-anchor="middle" class="lbl">discover.rs</text>
+  <text x="442" y="321" text-anchor="middle" class="lbl-sm">true pairs · K12</text>
+  <rect x="515" y="285" width="135" height="46" rx="6" class="box"/>
+  <text x="582" y="305" text-anchor="middle" class="lbl">snapshot.rs</text>
+  <text x="582" y="321" text-anchor="middle" class="lbl-sm">signed · K05</text>
+  <rect x="245" y="345" width="405" height="46" rx="6" class="box"/>
+  <text x="447" y="365" text-anchor="middle" class="lbl">predict.rs · LRU pivot cache (K08) · topology.rs · insights cache (K07)</text>
+  <rect x="245" y="405" width="405" height="40" rx="6" class="box"/>
+  <text x="447" y="429" text-anchor="middle" class="lbl-sm">commands.rs (thin Tauri IPC · Result&lt;T, String&gt;)</text>
+  <rect x="690" y="190" width="210" height="270" rx="12" fill="url(#lg2)" stroke="#64d2ff" stroke-width="1"/>
+  <text x="795" y="212" text-anchor="middle" class="lbl-title" style="fill:#64d2ff">Qdrant 1.18 (local)</text>
+  <rect x="705" y="230" width="180" height="40" rx="6" class="box"/>
+  <text x="795" y="248" text-anchor="middle" class="lbl">memex_sessions_v2</text>
+  <text x="795" y="262" text-anchor="middle" class="lbl-sm">uuid_v5 + schema_version</text>
+  <rect x="705" y="280" width="180" height="48" rx="6" class="box"/>
+  <text x="795" y="298" text-anchor="middle" class="lbl-sm" style="fill:#e8eaf1">5 dense + 1 multivec</text>
+  <text x="795" y="314" text-anchor="middle" class="lbl-sm">+ 2 sparse · (+SPLADE?)</text>
+  <rect x="705" y="338" width="180" height="40" rx="6" class="box"/>
+  <text x="795" y="356" text-anchor="middle" class="lbl-sm" style="fill:#e8eaf1">Query · RRF · MMR · RF</text>
+  <text x="795" y="370" text-anchor="middle" class="lbl-sm" style="fill:#8b95b3">strict filter · group_by</text>
+  <rect x="705" y="388" width="180" height="40" rx="6" class="box"/>
+  <text x="795" y="406" text-anchor="middle" class="lbl-sm" style="fill:#e8eaf1">SQ · HNSW per-vector</text>
+  <text x="795" y="420" text-anchor="middle" class="lbl-sm">datetime + payload idx</text>
+  <rect x="20" y="20" width="430" height="60" rx="10" class="box"/>
+  <text x="235" y="44" text-anchor="middle" class="lbl-title">Tauri 2 webview · 7 surfaces</text>
+  <text x="235" y="64" text-anchor="middle" class="lbl-sm">Time Machine · Topology · Lens · Mix&amp;Match · Predict · Recall · Replay</text>
+  <path class="edge" d="M200,260 L230,260" marker-end="url(#arrow)"/>
+  <path class="edge" d="M320,160 L320,225" marker-end="url(#arrow)"/>
+  <path class="edge" d="M200,260 C 215,200 215,140 240,130" marker-end="url(#arrow)"/>
+  <path class="edge-hot" d="M650,308 L690,308" marker-end="url(#arrow-red)"/>
+  <path class="edge" d="M650,260 L690,260" marker-end="url(#arrow)"/>
+  <path class="edge" d="M447,425 C 447,460 220,460 220,90" marker-end="url(#arrow)"/>
+  <text x="455" y="495" class="lbl-sm">Hot path · search.rs ↔ Query API (K01) · SHIP × 10 · COND × 7 · HOLD × 1 · POST × 1</text>
+</svg>
+      </div>
+    </section>
+
+    <!-- ============================ §6 ROADMAP ============================ -->
+    <section id="s6">
+      <h2><span class="num">§6</span> 14-day Roadmap · with conflict deadlines</h2>
+      <p class="lede">v1과 동일한 D-14→D-0 골격에 <b>5개 Open Conflict의 강제 결정 날짜</b>를 박았다. 매 conflict은 정해진 날까지 해결 못 하면 chair(A1 또는 B1)가 강제 결정.</p>
+      <div class="timeline">
+        <div class="h">Day</div><div class="h">Track A · Strategy</div><div class="h">Track B · Engineering</div><div class="h">Gate / Decision</div>
+
+        <div class="day">D-14</div><div>brief lock · panel v2 vote</div><div>SEC-003/004 fix (Aisha block)</div><div class="gate amber">SEC fix</div>
+        <div class="day">D-13</div><div>demo script v0</div><div>KICK 01 Query API spike · KICK 11 CoreML EP</div><div class="gate">spike PR</div>
+        <div class="day">D-12</div><div>motion token system</div><div>KICK 03 BM25 · KICK 06 batch · merge</div><div class="gate go">G0 ✓</div>
+        <div class="day">D-11</div><div>thumbnail · Bush 인용</div><div>KICK 02 token A/B · KICK 14 strict filter</div><div class="gate">eval start</div>
+        <div class="day">D-10</div><div>checkpoint #1</div><div>KICK 13 group_by · KICK 16 datetime idx</div><div class="gate go">G1-pre ✓</div>
+        <div class="day">D-9</div><div>storyboard 확정</div><div>KICK 04 MMR+RF · KICK 18 SPLADE A/B</div><div class="gate split">⚡ CONFLICT 02 decide (demo length)</div>
+        <div class="day">D-8</div><div>WOW-1/3 motion 1st pass</div><div>KICK 02 eval gate · +15% or revert</div><div class="gate amber">eval gate</div>
+        <div class="day">D-7</div><div>demo recording draft 1</div><div>WOW-2 · WOW-3 · KICK 12 context pairs</div><div class="gate split">⚡ CONFLICTS 01, 05 resolve</div>
+        <div class="day">D-6</div><div>team review</div><div>WOW-4 cinematic · KICK 15 HNSW tuning</div><div class="gate">usability test</div>
+        <div class="day">D-5</div><div>WOW-5 · landing copy</div><div>KICK 05 SQ + signed snapshot · K10 MUVERA check</div><div class="gate split">⚡ CONFLICT 03 resolve</div>
+        <div class="day">D-4</div><div>recording draft 2</div><div>full regression · perf budget</div><div class="gate freeze">FEATURE FREEZE</div>
+        <div class="day">D-3</div><div>landing polish</div><div>schema lock · bugfix only</div><div class="gate freeze">⚡ CONFLICT 04 resolve · schema lock</div>
+        <div class="day">D-2</div><div>Google Form draft</div><div>bugfix · DMG clean-machine test</div><div class="gate">build test</div>
+        <div class="day">D-1</div><div>dry-run end-to-end</div><div>hotfix only</div><div class="gate freeze">SHIP FREEZE</div>
+        <div class="day">D-0</div><div>submit before 23:59 UTC</div><div>—</div><div class="gate go">SUBMIT ✓</div>
+      </div>
+      <p class="footnote">5 conflict 결정일: <b>CONFLICT 01 (D-7)</b>, <b>CONFLICT 02 (D-9)</b>, <b>CONFLICT 03 (D-5)</b>, <b>CONFLICT 04 (D-3)</b>, <b>CONFLICT 05 (D-7)</b>. 결정 못 하면 chair 강제. 모든 결정은 보고서 부록(추후)에 기록.</p>
+    </section>
+
+    <!-- ============================ §7 RISK ============================ -->
+    <section id="s7">
+      <h2><span class="num">§7</span> Risk Register · v2 (확장)</h2>
+      <p class="lede">v1의 7개 + v2에서 추가된 4개 = 11개. 새 항목은 conflict-driven.</p>
+      <table class="risk">
+        <thead><tr><th>ID</th><th>Sev</th><th>Risk</th><th>Mitigation</th><th>Owner</th></tr></thead>
+        <tbody>
+          <tr><td>R1</td><td class="sev high">HIGH</td><td>SEC-003 path containment 미수정 시 임의 파일 노출</td><td>D-14 fix. <code>source_path</code> <code>~/.claude/projects</code> 하위 검증</td><td>B2 Aisha</td></tr>
+          <tr><td>R2</td><td class="sev high">HIGH</td><td>demo 영상 미녹화 → 자동 DQ</td><td>D-13 storyboard, D-7 draft 1, D-4 draft 2</td><td>A4 Daichi</td></tr>
+          <tr><td>R3</td><td class="sev med">MED</td><td>KICK 02 late-interaction nDCG 무효</td><td>D-8 eval gate, +15% 미달 → revert (Marcus 조건)</td><td>B4 Priya</td></tr>
+          <tr><td>R4</td><td class="sev med">MED</td><td>schema v2 재인덱스 데모 머신 부담</td><td>SQ + batch=32 + dual-write · D-3 schema lock</td><td>B3 Felix</td></tr>
+          <tr><td>R5</td><td class="sev med">MED</td><td>60fps 미달 (Topology + WOW-2 pulse)</td><td>WebGL particle 금지 · perf budget D-4 회귀 시 throttle</td><td>B5 Min-jae</td></tr>
+          <tr><td>R6</td><td class="sev low">LOW</td><td>Qdrant 1.18→1.19 snapshot 비호환</td><td>envelope <code>qdrant_version</code> · 1.18.x 만 import</td><td>B3 Felix</td></tr>
+          <tr><td>R7</td><td class="sev low">LOW</td><td>fastembed-rs 5.x → 6.x breaking</td><td>5.13.4 pin · 마감 후 평가</td><td>B3 Felix</td></tr>
+          <tr><td>R8 <small>(v2)</small></td><td class="sev high">HIGH</td><td>CONFLICT 01 미해결 — late-interaction vs 60fps</td><td>D-7 standup 강제 결정 · B1 tie-break · K11 CoreML이 양 측 모두 살리는 path</td><td>B1 Hiroshi</td></tr>
+          <tr><td>R9 <small>(v2)</small></td><td class="sev med">MED</td><td>CONFLICT 02 미해결 — demo 길이</td><td>D-9 외부 blind test 5명 · A1 chair 결정</td><td>A1 Eunha</td></tr>
+          <tr><td>R10 <small>(v2)</small></td><td class="sev med">MED</td><td>K18 SPLADE 5-5 tied vote → chair 결정 burden</td><td>D-9까지 A/B eval · 의미 차 없으면 자동 POST</td><td>A1 Eunha</td></tr>
+          <tr><td>R11 <small>(v2)</small></td><td class="sev low">LOW</td><td>K10 MUVERA GA 시점 불확실 — D-7 후 GA 시 schema 압박</td><td>D-7 cut-off · 후 GA는 자동 POST-D-0</td><td>B3 Felix</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================ §8 DEMO ============================ -->
+    <section id="s8">
+      <h2><span class="num">§8</span> Demo Script · CONFLICT 02 미해결</h2>
+      <p class="lede">v1의 8-segment 3-min 그대로 살리되, <b>CONFLICT 02가 D-9에 결정되기 전엔 두 버전 모두 보존</b>. 외부 blind test 후 채택.</p>
+
+      <div class="grid grid-2">
+        <article class="card">
+          <h4>Version A · 3 min (Daichi 안)</h4>
+          <p style="font-size:13.5px">0:00 Bush → 0:18 Thesis → 0:42 Topology → 1:06 Lens (KICK 03 wow) → 1:30 Predict+Replay → 1:54 Recall → 2:18 Discovery splash (KICK 12) → 2:42 Outro</p>
+          <div class="footnote">surface 7개 모두 등장 · breadth 인상</div>
+        </article>
+        <article class="card">
+          <h4>Version B · 90 sec (Marcus 안)</h4>
+          <p style="font-size:13.5px">0:00 Bush → 0:12 Thesis → 0:30 Topology gateway+gap (single killer surface) → 0:54 Lens KICK 03 (path BM25 wow) → 1:18 Recall → 1:30 Outro</p>
+          <div class="footnote">depth + 충격 · viral 가능성 ↑</div>
+        </article>
+      </div>
+      <p>둘 다 D-7까지 녹화 → 외부 5명에게 blind test. <b>"이게 챗봇이 아닌 걸 즉시 이해했나?"</b> 질문에 더 빠른 평균 응답 시간 안 채택.</p>
+    </section>
+
+    <!-- ============================ §9 SOURCES ============================ -->
+    <section id="s9">
+      <h2><span class="num">§9</span> Sources &amp; Provenance</h2>
+      <p class="lede">10편 사전조사 + v1 → v2 변경 기록.</p>
+
+      <h3>10편 사전조사</h3>
+      <div class="sources">
+        <div class="src-card"><div class="label">analysis · backend</div><a href="analysis/01-backend-rust-architecture.md">01-backend-rust-architecture.md</a><p style="margin:4px 0 0;font-size:12.5px;color:var(--fg-muted)">403줄 · indexer.rs 5-concern split</p></div>
+        <div class="src-card"><div class="label">analysis · system</div><a href="analysis/02-system-architecture-decisions.md">02-system-architecture-decisions.md</a><p style="margin:4px 0 0;font-size:12.5px;color:var(--fg-muted)">456줄 · 14 invariants</p></div>
+        <div class="src-card"><div class="label">analysis · frontend</div><a href="analysis/03-frontend-tauri-integration.md">03-frontend-tauri-integration.md</a><p style="margin:4px 0 0;font-size:12.5px;color:var(--fg-muted)">562줄 · IPC 12/13 · no-LLM 검증</p></div>
+        <div class="src-card"><div class="label">analysis · security</div><a href="analysis/04-security-audit.md">04-security-audit.md</a><p style="margin:4px 0 0;font-size:12.5px;color:var(--fg-muted)">250줄 · 3 High findings</p></div>
+        <div class="src-card"><div class="label">analysis · perf</div><a href="analysis/05-performance-analysis.md">05-performance-analysis.md</a><p style="margin:4px 0 0;font-size:12.5px;color:var(--fg-muted)">555줄 · QW-1/3/6</p></div>
+        <div class="src-card"><div class="label">research · official docs</div><a href="research/01-qdrant-official-docs-2026.md">01-qdrant-official-docs-2026.md</a><p style="margin:4px 0 0;font-size:12.5px;color:var(--fg-muted)">900줄 · 1.18.0 latest</p></div>
+        <div class="src-card"><div class="label">research · blog catalog</div><a href="research/02-qdrant-official-blog.md">02-qdrant-official-blog.md</a><p style="margin:4px 0 0;font-size:12.5px;color:var(--fg-muted)">507줄 · 31 articles</p></div>
+        <div class="src-card"><div class="label">research · VSD 2026</div><a href="research/03-qdrant-vsd-2026-hackathon.md">03-qdrant-vsd-2026-hackathon.md</a><p style="margin:4px 0 0;font-size:12.5px;color:var(--fg-muted)">421줄 · 룰/마감 verified</p></div>
+        <div class="src-card"><div class="label">research · sparse/colbert</div><a href="research/04-sparse-colbert-hybrid.md">04-sparse-colbert-hybrid.md</a><p style="margin:4px 0 0;font-size:12.5px;color:var(--fg-muted)">385줄 · BM42 partial-stale</p></div>
+        <div class="src-card"><div class="label">research · ecosystem</div><a href="research/05-rust-tauri-fastembed-ecosystem.md">05-rust-tauri-fastembed-ecosystem.md</a><p style="margin:4px 0 0;font-size:12.5px;color:var(--fg-muted)">721줄 · spawn_blocking + CoreML</p></div>
+      </div>
+
+      <h3>v1 → v2 changelog</h3>
+      <ul style="font-size:13.5px">
+        <li><b>KICK 10 → 19</b>. 사용자 비판 "꼭 빼야 할 이유 없는 항목은 빼지 마라" 적용. v1에서 미리 컷됐던 9개(K11-K19) 부활.</li>
+        <li><b>"Cross-team votes 10/10 만장일치" 섹션 삭제</b>. echo chamber 신호로 판단.</li>
+        <li><b>Open Conflicts 5건 신설 (§2)</b>. v1에서 합의-가공한 갈등들을 미해결 상태로 보존. 각자 D-3 ~ D-9 강제 결정일.</li>
+        <li><b>각 KICK에 split vote 표기</b>. 실제 만장일치는 K03, K06 두 개뿐(이게 정상).</li>
+        <li><b>Risk 7 → 11</b>. v2 conflict-driven risk 4건 추가.</li>
+        <li><b>Demo Script가 두 버전 보존</b>. CONFLICT 02 미해결 → 외부 blind test로 결정.</li>
+        <li><b>Architecture diagram에 discover.rs 모듈 추가</b> (KICK 12 채택 시).</li>
+        <li><b>Invariant 깨기는 거절 (K19 HOLD)</b>. polling-not-notify가 critic veto로 살아남음.</li>
+      </ul>
+
+      <h3>Provenance rules</h3>
+      <ul>
+        <li><b>Code claims</b> → <code>file:line</code> 인용.</li>
+        <li><b>External claims</b> → <code>[Source: URL · fetched 2026-05-18]</code>.</li>
+        <li><b>Estimates</b> → <code>[est.]</code> + 계산식.</li>
+        <li><b>Vote tallies</b> — 모든 panel split은 v2에서 본문에 노출. 합의 가공 금지.</li>
+        <li><b>Remote</b> — git push/PR/release는 <code>https://github.com/ComBba/memex</span></code> 외 금지.</li>
+      </ul>
+
+      <hr/>
+      <p class="footnote">
+        v2 authored on 2026-05-18 · single-page scroll long-form (user-selected) · divergence mode (user-selected via revision option 1) · 10-person panel real split votes preserved · 5 unresolved cross-team conflicts deliberately exposed · no source tree modified by this report.
+      </p>
+    </section>
+
+  </main>
+</div>
+
+</body>
+</html>

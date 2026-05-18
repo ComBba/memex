@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>WOW-2 · Topology Galaxy (prototype)</title>
+<style>
+  :root {
+    --bg: #0a0e1a; --bg-elev: #131826; --border: #1f2940;
+    --fg: #e8eaf1; --fg-muted: #8b95b3;
+    --accent: #dc382d; --accent-2: #bf5af2; --accent-3: #30d158;
+    --accent-4: #ffd60a; --accent-5: #64d2ff;
+    --mono: "JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg); font-family: -apple-system, "Inter", sans-serif; overflow: hidden; }
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 48px; padding: 0 20px;
+    display: flex; align-items: center; gap: 16px;
+    background: rgba(10,14,26,.7); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); z-index: 10;
+  }
+  .topbar .brand { font-weight: 700; }
+  .topbar .brand span { color: var(--accent); }
+  .topbar .num { font-family: var(--mono); font-size: 11px; color: var(--accent-5); }
+  .topbar .hint { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--fg-muted); }
+  .topbar a { color: var(--fg-muted); text-decoration: none; font-family: var(--mono); font-size: 11px; }
+  .topbar a:hover { color: var(--accent-5); }
+
+  #canvas { position: absolute; inset: 48px 0 0; width: 100%; height: calc(100vh - 48px); display: block; cursor: grab; }
+  #canvas:active { cursor: grabbing; }
+
+  .label {
+    position: absolute; pointer-events: none;
+    font-family: var(--mono); font-size: 11px;
+    background: rgba(19,24,38,.85); backdrop-filter: blur(8px);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 8px; color: var(--fg);
+    transform: translate(-50%, -50%);
+    white-space: nowrap;
+  }
+  .label .sub { color: var(--fg-muted); margin-top: 2px; font-size: 10px; }
+  .label.gap {
+    background: rgba(255,214,10,.12); border-color: rgba(255,214,10,.5);
+    color: var(--accent-4);
+    box-shadow: 0 0 24px rgba(255,214,10,.2);
+  }
+  .label.bridge {
+    color: var(--accent-2); border-color: rgba(191,90,242,.5);
+  }
+
+  .legend {
+    position: fixed; bottom: 16px; left: 16px;
+    background: rgba(19,24,38,.85); backdrop-filter: blur(10px);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 16px; font-family: var(--mono); font-size: 11px;
+    color: var(--fg-muted); min-width: 220px;
+  }
+  .legend .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 50%; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">memex</span>
+  <span class="num">WOW-2 · Topology Galaxy · Gateway Nodes</span>
+  <span class="hint">drag to rotate · scroll to zoom · 60fps target</span>
+  <a href="index.html">← all prototypes</a>
+</div>
+
+<canvas id="canvas"></canvas>
+<div id="labels"></div>
+
+<div class="legend">
+  <div style="color:var(--fg);font-weight:600;margin-bottom:6px">Topology · KD-02-free</div>
+  <div class="row"><span class="dot" style="background:#30d158"></span>project-marketing</div>
+  <div class="row"><span class="dot" style="background:#64d2ff"></span>project-yc</div>
+  <div class="row"><span class="dot" style="background:#dc382d"></span>project-redesign</div>
+  <div class="row"><span class="dot" style="background:#bf5af2"></span>memex (self)</div>
+  <div class="row" style="margin-top:8px;color:var(--accent-2)">━ cross-project bridge</div>
+  <div class="row" style="color:var(--accent-4)">⚠ gap insight</div>
+</div>
+
+<script>
+// 3D galaxy — vanilla canvas, no three.js
+// fake nodes representing v3.2 corpus, 4 clusters + bridges + 1 gap
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const labelsRoot = document.getElementById('labels');
+
+function resize() {
+  canvas.width = canvas.offsetWidth * devicePixelRatio;
+  canvas.height = canvas.offsetHeight * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+}
+window.addEventListener('resize', resize); resize();
+
+// clusters
+const clusters = [
+  { name: 'project-marketing', sub: '10 sess · "Landing copy iter"', color: '#30d158', cx: -1.2, cy: -0.6, cz: 0.3, r: 0.6 },
+  { name: 'project-yc',        sub: '14 sess · "SAFE filing draft"', color: '#64d2ff', cx:  1.2, cy: -0.4, cz: 0.5, r: 0.7 },
+  { name: 'project-redesign',  sub: '15 sess · "v2 mockups iter"',   color: '#dc382d', cx: -0.8, cy:  0.9, cz: -0.4, r: 0.6 },
+  { name: 'memex (self)',      sub: '40 sess · "Qdrant 1.18 SOTA"',  color: '#bf5af2', cx:  0.8, cy:  0.7, cz: -0.2, r: 0.85 },
+];
+
+// nodes
+const nodes = [];
+clusters.forEach((cl, ci) => {
+  const n = ci === 3 ? 40 : (ci === 2 ? 15 : (ci === 1 ? 14 : 10));
+  for (let i = 0; i < n; i++) {
+    const t = Math.random() * Math.PI * 2;
+    const u = Math.random() * Math.PI;
+    const r = cl.r * (0.4 + Math.random() * 0.6);
+    nodes.push({
+      x: cl.cx + r * Math.sin(u) * Math.cos(t),
+      y: cl.cy + r * Math.sin(u) * Math.sin(t),
+      z: cl.cz + r * Math.cos(u),
+      cl: ci,
+      size: 2 + Math.random() * 2,
+    });
+  }
+});
+
+// bridges (cross-project edges)
+const bridges = [
+  { a: 0, b: 1, sim: 0.91, label: 'sim 0.91' }, // marketing ↔ yc
+  { a: 3, b: 1, sim: 0.83, label: 'sim 0.83' }, // memex ↔ yc
+  { a: 3, b: 2, sim: 0.78, label: 'sim 0.78' }, // memex ↔ redesign
+];
+
+// gaps (unmade connections)
+const gaps = [
+  { a: 0, b: 2, sim: 0.97, label: '"redesign ↔ marketing\nsim 0.97 · no bridge"' },
+];
+
+// camera state
+let rotY = 0.5, rotX = 0.3, zoom = 220;
+let dragging = false, lx = 0, ly = 0;
+canvas.addEventListener('mousedown', e => { dragging = true; lx = e.clientX; ly = e.clientY; });
+window.addEventListener('mouseup', () => dragging = false);
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  rotY += (e.clientX - lx) * 0.005;
+  rotX += (e.clientY - ly) * 0.005;
+  rotX = Math.max(-1.4, Math.min(1.4, rotX));
+  lx = e.clientX; ly = e.clientY;
+});
+canvas.addEventListener('wheel', e => { e.preventDefault(); zoom = Math.max(100, Math.min(500, zoom - e.deltaY * 0.3)); }, { passive: false });
+
+function project(x, y, z) {
+  const cy = Math.cos(rotY), sy = Math.sin(rotY);
+  const cx = Math.cos(rotX), sx = Math.sin(rotX);
+  let x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+  let y1 = y * cx - z1 * sx, z2 = y * sx + z1 * cx;
+  const W = canvas.offsetWidth / 2;
+  const H = canvas.offsetHeight / 2;
+  return { x: W + x1 * zoom, y: H + y1 * zoom, z: z2, scale: Math.max(0.2, 1 + z2 * 0.3) };
+}
+
+let frame = 0;
+function render() {
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  ctx.clearRect(0, 0, W, H);
+  // background gradient
+  const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W, H));
+  g.addColorStop(0, 'rgba(100,210,255,0.04)');
+  g.addColorStop(1, 'rgba(10,14,26,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // sort nodes by z for proper occlusion
+  const projected = nodes.map((n, i) => ({ i, ...project(n.x, n.y, n.z), n }));
+  projected.sort((a, b) => a.z - b.z);
+
+  // bridge edges between cluster centroids
+  bridges.forEach(b => {
+    const ca = clusters[b.a], cb = clusters[b.b];
+    const pa = project(ca.cx, ca.cy, ca.cz);
+    const pb = project(cb.cx, cb.cy, cb.cz);
+    const grad = ctx.createLinearGradient(pa.x, pa.y, pb.x, pb.y);
+    grad.addColorStop(0, ca.color); grad.addColorStop(1, cb.color);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 2 + b.sim * 2;
+    ctx.globalAlpha = 0.6 + 0.3 * Math.sin(frame * 0.04);
+    ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+    ctx.globalAlpha = 1;
+    // particle pulse
+    const t = (frame * 0.02) % 1;
+    const px = pa.x + (pb.x - pa.x) * t;
+    const py = pa.y + (pb.y - pa.y) * t;
+    ctx.fillStyle = '#bf5af2'; ctx.beginPath(); ctx.arc(px, py, 3.5, 0, Math.PI * 2); ctx.fill();
+  });
+
+  // nodes
+  projected.forEach(p => {
+    const cl = clusters[p.n.cl];
+    ctx.fillStyle = cl.color;
+    ctx.globalAlpha = 0.85 + 0.15 * Math.min(1, p.scale - 0.5);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.n.size * p.scale, 0, Math.PI * 2);
+    ctx.fill();
+    // halo
+    ctx.globalAlpha = 0.15;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.n.size * p.scale * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  // labels overlay (HTML)
+  labelsRoot.innerHTML = '';
+  // cluster labels
+  clusters.forEach(cl => {
+    const p = project(cl.cx, cl.cy + 0.7, cl.cz);
+    const el = document.createElement('div');
+    el.className = 'label';
+    el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+    el.style.color = cl.color; el.style.borderColor = cl.color + '66';
+    el.innerHTML = `${cl.name}<div class="sub">${cl.sub}</div>`;
+    labelsRoot.appendChild(el);
+  });
+  // bridge labels
+  bridges.forEach(b => {
+    const ca = clusters[b.a], cb = clusters[b.b];
+    const pa = project(ca.cx, ca.cy, ca.cz);
+    const pb = project(cb.cx, cb.cy, cb.cz);
+    const el = document.createElement('div');
+    el.className = 'label bridge';
+    el.style.left = ((pa.x + pb.x) / 2) + 'px';
+    el.style.top = ((pa.y + pb.y) / 2 - 14) + 'px';
+    el.textContent = '═ ' + b.label;
+    labelsRoot.appendChild(el);
+  });
+  // gap insights
+  gaps.forEach(g => {
+    const ca = clusters[g.a], cb = clusters[g.b];
+    const cx = (ca.cx + cb.cx) / 2;
+    const cy = (ca.cy + cb.cy) / 2;
+    const cz = (ca.cz + cb.cz) / 2;
+    const p = project(cx, cy, cz);
+    const el = document.createElement('div');
+    el.className = 'label gap';
+    el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+    const lines = g.label.split('\n');
+    el.innerHTML = `<div>⚠ GAP</div><div class="sub" style="color:var(--accent-4)">${lines.join('<br/>')}</div>`;
+    labelsRoot.appendChild(el);
+  });
+
+  frame++;
+  requestAnimationFrame(render);
+}
+render();
+</script>
+
+</body>
+</html>
