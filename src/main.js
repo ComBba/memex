@@ -214,7 +214,7 @@ function enterStackMode() {
   state.mode = "stack";
   document
     .getElementById("results")
-    .querySelectorAll(".card")
+    .querySelectorAll(".card, .empty")
     .forEach((n) => n.remove());
   renderStack();
 }
@@ -370,8 +370,16 @@ function resetLens() {
 
 function renderResults(hits) {
   const root = document.getElementById("results");
-  root.querySelectorAll(".card").forEach((c) => c.remove());
-  document.getElementById("results-empty").style.display = hits.length ? "none" : "";
+  root.querySelectorAll(".card, .empty").forEach((c) => c.remove());
+  // The legacy `#results-empty` hint may have been removed by renderStack;
+  // guard the lookup. If there are zero hits, drop a fresh empty state.
+  if (!hits.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.id = "results-empty";
+    empty.textContent = `No hits for "${state.query}".`;
+    root.appendChild(empty);
+  }
   for (const h of hits) {
     const card = document.createElement("article");
     card.className = "card";
