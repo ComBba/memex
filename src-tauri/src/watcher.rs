@@ -345,6 +345,7 @@ async fn maybe_fire_recall(
     let _ = app.emit(
         "open-replay-from-notification",
         json!({
+            "kind": "recall",
             "from_session_id": session.session_id,
             "from_turn_index": turn_index,
             "from_project": project,
