@@ -326,21 +326,7 @@ async fn maybe_fire_recall(
         if top.ai_title.is_empty() { top.project_name.as_str() } else { top.ai_title.as_str() }
     );
 
-    if let Err(e) = app
-        .notification()
-        .builder()
-        .title(title)
-        .body(&body)
-        .show()
-    {
-        eprintln!("[memex] notification show failed: {e:#}");
-    }
-    // macOS belt-and-suspenders: tauri-plugin-notification uses the
-    // deprecated NSUserNotification API which can be silently dropped on
-    // ad-hoc-signed bundles. Fire the same payload via `osascript display
-    // notification` so the user is guaranteed to see something. Runs in a
-    // detached blocking task so we don't park the tokio worker.
-    macos_notify_via_osascript(title, &body);
+    notify_system(app, title, &body);
 
     // Emit deep-link event so the frontend can auto-open the replay of the
     // matched past session whenever the main window comes into focus.
@@ -432,16 +418,7 @@ async fn maybe_fire_predict(
         top.tool_name,
         pct
     );
-    if let Err(e) = app
-        .notification()
-        .builder()
-        .title(title)
-        .body(&body)
-        .show()
-    {
-        eprintln!("[memex] predict notification show failed: {e:#}");
-    }
-    macos_notify_via_osascript(title, &body);
+    notify_system(app, title, &body);
 
     let _ = app.emit(
         "open-replay-from-notification",
@@ -464,16 +441,21 @@ async fn maybe_fire_predict(
     Ok(true)
 }
 
-/// macOS osascript fallback. We escape double-quotes + backslashes so an
-/// untrusted error_text can't break out of the AppleScript string literal,
-/// then fire-and-forget. No-op on non-macOS targets.
-fn macos_notify_via_osascript(title: &str, body: &str) {
+/// Surface a system notification. On macOS we shell out to `osascript
+/// display notification` exclusively — `tauri-plugin-notification` v2 on
+/// macOS goes through the deprecated `NSUserNotification` API via
+/// `notify-rust`/`mac-notification-sys`, which on ad-hoc-signed bundles can
+/// either fire a *second* notification with a different (helper-bundle)
+/// icon, or get silently dropped. AppleScript gives us a single reliable
+/// banner. On other platforms we fall back to the plugin so Linux/Windows
+/// keep working.
+fn notify_system(app: &AppHandle, title: &str, body: &str) {
     #[cfg(target_os = "macos")]
     {
+        let _ = app;
         fn escape(s: &str) -> String {
             s.replace('\\', "\\\\").replace('"', "\\\"")
         }
-        // Trim to keep the banner readable + avoid AppleScript truncation quirks.
         let safe_title: String = escape(title).chars().take(120).collect();
         let safe_body: String = escape(body).chars().take(220).collect();
         let script = format!(
@@ -493,7 +475,15 @@ fn macos_notify_via_osascript(title: &str, body: &str) {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (title, body);
+        if let Err(e) = app
+            .notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show()
+        {
+            eprintln!("[memex] notification show failed: {e:#}");
+        }
     }
 }
 
