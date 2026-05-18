@@ -234,6 +234,10 @@ async function pollUntilReady(attempt = 0) {
     );
     document.getElementById("collection-info").textContent =
       `· ${info.points_count} sessions`;
+    // If a session was already selected while Qdrant was still warming
+    // up (e.g., initial stack auto-select fired before this poll
+    // succeeded), kick its prediction now.
+    if (state.selected) schedulePrediction(state.selected);
   } catch (err) {
     const msg = String(err);
     // Distinguish: still cold-starting vs. true failure (Qdrant down / model
@@ -428,17 +432,32 @@ async function selectSession(sessionId, opts = {}) {
       const summary = state.stack.find((s) => s.session_id === sessionId);
       if (summary) {
         renderInspector(summary, sessionId);
+        schedulePrediction(sessionId);
         return;
       }
     }
     renderInspector(payload, sessionId);
-    // Path 2 — auto-load predictive next actions for the selected session.
-    // Non-blocking; the panel populates when the backend returns.
-    if (!silent) loadPredictions(sessionId);
+    // Predictions always run when a session is selected — even from silent
+    // stack navigation. The shimmer placeholder is cheap and signals
+    // "we're computing what past-you did next" before the data lands.
+    schedulePrediction(sessionId);
   } catch (err) {
     if (silent) return;
     inspector.innerHTML = `<div class="empty">Error: ${escapeHtml(String(err))}</div>`;
   }
+}
+
+// Debounce rapid arrow-key nav: only the last session the user lingers on
+// for ~220 ms gets a prediction roundtrip.
+let predictionTimer = null;
+function schedulePrediction(sessionId) {
+  if (predictionTimer) clearTimeout(predictionTimer);
+  // Show shimmer immediately so the user sees the panel responding.
+  renderPredictionPanel({ loading: true, source_session_id: sessionId });
+  predictionTimer = setTimeout(() => {
+    predictionTimer = null;
+    loadPredictions(sessionId);
+  }, 220);
 }
 
 // ---------------------------------------------------------------------------
@@ -492,10 +511,13 @@ async function loadPredictions(sessionId) {
 }
 
 function renderPredictionPanel(ctx) {
-  // Always render INSIDE the inspector, below the payload kvs section.
-  const inspector = document.getElementById("inspector");
+  // The slot is rendered by renderInspector above the kvs/raw, so it's
+  // always visible without scrolling. If the inspector hasn't rendered yet
+  // (e.g., predictions arrived before payload), create a panel inline at
+  // the inspector root and let the next inspector render replace it.
   let panel = document.getElementById("prediction-panel");
   if (!panel) {
+    const inspector = document.getElementById("inspector");
     panel = document.createElement("section");
     panel.id = "prediction-panel";
     panel.className = "prediction-panel";
@@ -616,11 +638,14 @@ function renderInspector(payload, sessionId) {
       </div>`,
     )
     .join("");
+  // Note the prediction-slot lives BEFORE the kvs / raw payload so it's
+  // always visible without scrolling — it's the differentiating surface.
   inspector.innerHTML = `
     <header class="inspector-head">
       <h3>${escapeHtml(payload.project_name || "session")}</h3>
       <code>${escapeHtml(sessionId)}</code>
     </header>
+    <section id="prediction-panel" class="prediction-panel"></section>
     <div class="kvs">${rows}</div>
     <details class="raw">
       <summary>Raw payload</summary>
