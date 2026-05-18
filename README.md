@@ -20,7 +20,8 @@
 </p>
 
 <p>
-<a href="#-five-qdrant-primitives"><b>Five Qdrant primitives</b></a> ·
+<a href="https://sgwannabe.github.io/memex/"><b>🌐 Landing page</b></a> ·
+<a href="#-seven-surfaces-zero-chat-windows"><b>Surfaces</b></a> ·
 <a href="#-what-you-can-do-with-memex"><b>Use cases</b></a> ·
 <a href="#-quick-start"><b>Quick start</b></a> ·
 <a href="#-cli-reference"><b>CLI</b></a> ·
@@ -50,8 +51,9 @@ Concretely:
 | Answer "have I seen this error before?" via RAG → LLM → text. | **Banner slides in** with the past session whose `error` named-vector neighborhood matches — zero LLM calls. |
 | "What other sessions are like this one?" → LLM compares summaries. | **Mix & Match** drops session points into Qdrant's Discovery API and returns ranked neighbors. |
 | "What's the structure of my work?" → LLM writes a paragraph. | **3D force-directed topology** of `search_matrix_pairs` data, with auto-labeled clusters, cross-project bridge edges, and gap insights ("‘project-redesign’ ↔ ‘project-yc’ have semantically similar sessions but no bridge — possible unmade connection."). |
+| "What should I do next?" → LLM completion + tool-use. | **🔮 Predict next-action** — embed the active session's last few turns, find K similar past sessions via the `content` vector, locate the conversational pivot, walk forward `horizon` turns, aggregate tool calls. Surfaces what *past-you did* from a comparable position. Zero LLM. |
 
-Five different Qdrant primitives, five different visual surfaces, zero generative AI in the loop.
+Six different surfaces, multiple Qdrant primitives, zero generative AI in the loop.
 
 ---
 
@@ -90,11 +92,11 @@ Inside each `.jsonl` is your *entire* conversation — every prompt, every tool 
 
 ---
 
-## ✨ Five Qdrant primitives
+## ✨ Seven surfaces, zero chat windows
 
-Each surface in Memex maps to a different Qdrant primitive — together they cover *named vectors → matrix sampling → discovery → payload filtering → snapshots*. None of these are the "embed text, retrieve top-K, feed to LLM" loop of classical RAG.
+Each surface in Memex maps to a different Qdrant primitive — together they cover *named vectors → matrix sampling → discovery → payload filtering → snapshots → recommendation*. None of these are the "embed text, retrieve top-K, feed to LLM" loop of classical RAG.
 
-Ordered as you encounter them in the app (visual first, search last):
+Ordered as you encounter them in the app (visual / spatial first, search last):
 
 | # | Surface | Qdrant primitive | What you actually do |
 |---|---|---|---|
@@ -102,10 +104,11 @@ Ordered as you encounter them in the app (visual first, search last):
 | 2 | 🌌 **Topology galaxy** | **Distance Matrix API** (`search_matrix_pairs`) → 3D force-directed graph + auto-clustered project labels + gap insights | A WebGL scene of your session corpus. Cluster auto-labels (*"code + shell · Bash×1350 Edit×1032"*), yellow cross-project bridge edges, and **Gap cards** flagging pairs of projects that *should* connect but don't (*"‘project-redesign’ ↔ ‘project-yc’ — semantically similar (sim 0.97) but never bridged."*). |
 | 3 | 🧪 **Mix & Match** | **Discovery API** (`DiscoverInput` + context pairs) | Drop sessions as **positives** and **negatives** — Qdrant returns sessions semantically near the positives, far from the negatives. Recommendation, not retrieval. |
 | 4 | 🔔 **Proactive recall** | `query()` on the dedicated `error` named vector with `has_errors=true` payload filter, polled every 12 s over `~/.claude/projects` | Working in another Claude Code session and hit a fresh `tool_result.is_error`? A banner slides in: *"I've seen this error before — open the session that solved it."* No LLM, no chat, just a vector neighbor with the right filter. |
-| 5 | ⏯ **Replay engine** | Lightweight payload (`source_path`) → on-demand JSONL re-parse | Turn-by-turn animation of any past session with **Bash terminals**, **Edit `-`/`+` diffs**, **Read snippets**, **Task/Agent spawns**. Click to scrub, ⏮ ⏯ ⏭ controls, 1× / 2× / 4× / 8×. (No vector primitive here — but it's the surface Memex's vector primitives *point to*.) |
-| 6 | 🔍 **Lens slider** | Multiple **named vectors per point** + parallel `query()` + weighted Rust combine | The "advanced vector search" axis, intentionally last. Five named vectors per session (`content`, `tool`, `path`, `error`, `code`); slide each weight to bias the rank — per-vector contribution chips on each result card so you can *see* which lens earned the hit. |
+| 5 | 🔮 **Predict next-action** <kbd>NEW</kbd> | `content` named-vector neighbor search + payload re-parse + tool-call aggregation | Click a session — Memex embeds its last 3 turns, finds 8 similar past sessions, lexically locates the *pivot turn* in each, walks `horizon` turns forward, and ranks the tool calls by `frequency × similarity`. The panel surfaces "what past-you did next" with a one-click jump-to-replay back at the source turn. **The recommendation answer to "what should I do?" without an LLM in sight.** |
+| 6 | ⏯ **Replay engine** | Lightweight payload (`source_path`) → on-demand JSONL re-parse | Turn-by-turn animation of any past session with **Bash terminals**, **Edit `-`/`+` diffs**, **Read snippets**, **Task/Agent spawns**. Click to scrub, ⏮ ⏯ ⏭ controls, 1× / 2× / 4× / 8×. (No vector primitive here — but it's the surface Memex's vector primitives *point to*.) |
+| 7 | 🔍 **Lens slider** | Multiple **named vectors per point** + parallel `query()` + weighted Rust combine | The "advanced vector search" axis, intentionally last. Five named vectors per session (`content`, `tool`, `path`, `error`, `code`); slide each weight to bias the rank — per-vector contribution chips on each result card so you can *see* which lens earned the hit. |
 
-Plus: **Snapshot** export/import via Qdrant's HTTP snapshot API — your entire indexed memory in one portable file.
+Plus: **📦 Snapshot** export/import via Qdrant's HTTP snapshot API — your entire indexed memory in one portable file.
 
 ColBERT v2 inline citations are on the roadmap; [`fastembed-rs`](https://github.com/Anush008/fastembed-rs) 5.x doesn't yet ship the model.
 
@@ -163,6 +166,25 @@ A background poller watches `~/.claude/projects` for `tool_result.is_error`. Whe
 ```
 
 (No LLM call. No chat surface. Just a Qdrant `query()` against the `error` named vector with `has_errors=true` filter.)
+
+</td></tr>
+<tr><td><b>🔮 See what past-you did next</b></td><td>
+
+Click any session in the stack. The inspector's prediction panel populates within ~1 s:
+
+```
+🔮 What past-you did next         2 of 6 neighbor(s) matched
+
+#1  🖥 Bash    67% of times · sim 65%
+     cargo build --release
+     ● project-redesign · turn #486    [Jump to replay]
+
+#2  ✏️ Edit    33% of times · sim 64%
+     src-tauri/Cargo.toml
+     ● project-tool-a · turn #312      [Jump to replay]
+```
+
+The closest thing Memex has to "what should I do next?" — answered purely by neighbor-vector lookup + tool-call aggregation. The Jump-to-replay button warps you to the exact source turn so you can see the resolution play out.
 
 </td></tr>
 <tr><td><b>Re-experience a past session</b></td><td>
@@ -296,6 +318,7 @@ memex lens "query" --content 2 --tool 1.5 --code 0.5
 memex mix --pos <session_id> --neg <session_id>
 memex topology --sample 80 --per-point 6 --out topo.json
 memex recall "Tauri build failed missing icons"
+memex predict <session_id> --last-n 3 --horizon 3 --neighbors 8
 memex snapshot export ./memex.snapshot
 memex snapshot import ./memex.snapshot
 ```
@@ -400,10 +423,13 @@ This is a **hackathon MVP** built for [Qdrant Vector Space Day 2026](https://qdr
 - ✅ 🌌 3D force-directed topology galaxy with project cluster auto-labels + gap insights
 - ✅ 🧪 Mix & Match recommendation via Qdrant Discovery API
 - ✅ 🔔 Proactive recall banner (12 s poll over `~/.claude/projects`)
+- ✅ 🔮 **Predict next-action** — neighbor-vector pivot walk + tool-call aggregation
 - ✅ ⏯ Replay engine with Bash / Edit-diff / Read / Task tool visualizations at 1×–8×
 - ✅ 🔍 Lens slider (multi-named-vector weighted search) — the "advanced vector search" axis
-- ✅ Snapshot export/import via Qdrant HTTP API
+- ✅ 📦 Snapshot export/import via Qdrant HTTP API
+- ✅ 🌐 Public landing page at [sgwannabe.github.io/memex](https://sgwannabe.github.io/memex/) (single-file `index.html`, no JS)
 - ✅ Lazy AppState init — self-heals if Qdrant is started after Memex
+- ✅ EROFS fix — fastembed cache + working-dir-on-launch for the bundled `.app`
 - ✅ Honest duplicate-sessionId detection in indexer reporting
 - ✅ `Memex.app` + `.dmg` for macOS arm64
 
