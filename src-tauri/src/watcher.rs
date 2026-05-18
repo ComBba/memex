@@ -33,6 +33,28 @@ use crate::commands::AppStateArc;
 use crate::indexer::{self, SearchHit};
 use crate::parser::{self, Session};
 
+/// Which jsonl schema a candidate path follows. The watcher polls both the
+/// modern `~/.claude/projects/` tree and (if present) the legacy
+/// `~/.claude/transcripts/` flat dir so a user's pre-v2.1.114 corpus
+/// — which Anthropic stopped writing into without announcement — is still
+/// indexed and surfaced through Memex.
+#[derive(Debug, Clone, Copy)]
+enum SourceKind {
+    Modern,
+    LegacyTranscript,
+}
+
+fn default_transcripts_root() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        let mut p = PathBuf::from(home);
+        p.push(".claude");
+        p.push("transcripts");
+        p
+    } else {
+        PathBuf::from(".claude/transcripts")
+    }
+}
+
 /// Per-tick stats payload emitted on the `index-updated` Tauri event.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct TickStats {
@@ -60,6 +82,20 @@ const FRESH_ERROR_WINDOW: Duration = Duration::from_secs(60 * 5);
 const PREDICT_FREQ_THRESHOLD: f32 = 0.7;
 /// Debounce window per (session_id, predicted_tool) — 30 min.
 const PREDICT_DEBOUNCE: Duration = Duration::from_secs(60 * 30);
+
+/// Hard cap on indexes per tick — fastembed's ONNX runtime pegs every CPU
+/// core when batching big embedding runs, which on a user's machine with
+/// 1 900+ legacy transcripts produces ~700% CPU and a screaming fan for
+/// hours. Cap so each tick does at most this many sessions and the worker
+/// goes idle between ticks. A full corpus warm-up will take N/cap ticks
+/// (e.g. 1 989 / 30 ≈ 67 ticks ≈ 67 min at period=60 s) but the machine
+/// stays usable the whole time.
+const MAX_INDEX_PER_TICK: usize = 30;
+
+/// First-tick boot delay — wait this long after app start before doing
+/// anything heavy, so the UI window has time to paint and the user isn't
+/// surprised by a fan spike on launch.
+const BOOT_DELAY_SECS: u64 = 30;
 
 /// Spawn the background watcher. Returns immediately; the task runs until the
 /// process exits.
@@ -90,9 +126,10 @@ pub fn start_watcher(
         // prompt the first time; subsequent launches reuse the cached state.
         ensure_notification_permission(&app);
 
-        // First tick: short delay so the UI window gets to paint before we
-        // potentially load fastembed (~130 MB on first launch).
-        let mut delay = Duration::from_secs(5);
+        // First tick: longer delay so the UI window gets to paint and the
+        // user isn't met with a CPU spike during startup. After the first
+        // tick we fall back to the configured period.
+        let mut delay = Duration::from_secs(BOOT_DELAY_SECS);
         loop {
             tokio::time::sleep(delay).await;
             delay = period;
@@ -163,8 +200,10 @@ async fn tick(
     let mut stats = TickStats::default();
     let started = std::time::Instant::now();
 
-    // 1. Cheap walk — collect every (path, mtime) that *might* need work.
-    let mut candidates: Vec<(PathBuf, SystemTime)> = Vec::new();
+    // 1. Cheap walk over BOTH the modern projects/ tree and (if present)
+    //    the legacy transcripts/ flat dir. Each candidate carries a flag
+    //    telling us which parser to use later.
+    let mut candidates: Vec<(PathBuf, SystemTime, SourceKind)> = Vec::new();
     for entry in WalkDir::new(root)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -180,18 +219,41 @@ async fn tick(
         stats.checked += 1;
         let Ok(meta) = entry.metadata() else { continue };
         let Ok(modified) = meta.modified() else { continue };
-        candidates.push((path.to_path_buf(), modified));
+        candidates.push((path.to_path_buf(), modified, SourceKind::Modern));
+    }
+    // Legacy transcripts/ — only if it exists. Flat dir, only ses_*.jsonl.
+    let transcripts_root = default_transcripts_root();
+    if transcripts_root.exists() {
+        for entry in WalkDir::new(&transcripts_root)
+            .max_depth(1)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            if !stem.starts_with("ses_") {
+                continue;
+            }
+            stats.checked += 1;
+            let Ok(meta) = entry.metadata() else { continue };
+            let Ok(modified) = meta.modified() else { continue };
+            candidates.push((path.to_path_buf(), modified, SourceKind::LegacyTranscript));
+        }
     }
 
     // 2. Filter to files whose mtime is new-to-us OR advanced.
-    let mut to_index: Vec<(PathBuf, SystemTime, bool)> = Vec::new();
+    let mut to_index: Vec<(PathBuf, SystemTime, bool, SourceKind)> = Vec::new();
     {
         let mtimes_guard = mtimes.lock().await;
-        for (path, modified) in &candidates {
+        for (path, modified, kind) in &candidates {
             match mtimes_guard.get(path) {
                 Some(prev) if *prev >= *modified => {}
-                Some(_) => to_index.push((path.clone(), *modified, false)),
-                None => to_index.push((path.clone(), *modified, true)),
+                Some(_) => to_index.push((path.clone(), *modified, false, *kind)),
+                None => to_index.push((path.clone(), *modified, true, *kind)),
             }
         }
     }
@@ -199,6 +261,17 @@ async fn tick(
     if to_index.is_empty() {
         stats.elapsed_ms = started.elapsed().as_millis();
         return Ok(stats);
+    }
+
+    // Hard-cap batch size so a fresh-corpus warm-up doesn't peg the CPU
+    // for hours. Remaining files get picked up on subsequent ticks.
+    let backlog = to_index.len();
+    if backlog > MAX_INDEX_PER_TICK {
+        to_index.truncate(MAX_INDEX_PER_TICK);
+        let remaining = backlog - MAX_INDEX_PER_TICK;
+        eprintln!(
+            "[memex] warm-up: indexing {MAX_INDEX_PER_TICK}/{backlog} this tick · {remaining} left for next ticks"
+        );
     }
 
     // 3. Lazy-init the heavy state only when we know there's work.
@@ -211,8 +284,12 @@ async fn tick(
     let mut hot: Vec<Session> = Vec::new();
 
     let now = SystemTime::now();
-    for (path, modified, is_new) in to_index {
-        let session = match parser::parse_session(&path) {
+    for (path, modified, is_new, kind) in to_index {
+        let parse_result = match kind {
+            SourceKind::Modern => parser::parse_session(&path),
+            SourceKind::LegacyTranscript => parser::parse_transcript_session(&path),
+        };
+        let session = match parse_result {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[memex] watcher parse_session failed for {}: {:#}", path.display(), e);

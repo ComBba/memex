@@ -248,6 +248,19 @@ pub async fn snapshot_export(path: PathBuf) -> Result<String, String> {
     indexer::snapshot_export(&path).await.map_err(stringify)
 }
 
+/// Convenience wrapper called from the dashboard's "data archaeology" card —
+/// drops a snapshot into the user's home dir with an ISO-timestamped name
+/// so the user doesn't have to type a path. Returns "<name> → <abs_path>"
+/// so the UI can echo where the file landed.
+#[tauri::command]
+pub async fn snapshot_export_default() -> Result<String, String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let ts = chrono::Utc::now().format("%Y-%m-%dT%H-%M-%S").to_string();
+    let path = PathBuf::from(&home).join(format!("memex-snapshot-{ts}.snapshot"));
+    let name = indexer::snapshot_export(&path).await.map_err(stringify)?;
+    Ok(format!("{name} → {}", path.display()))
+}
+
 #[tauri::command]
 pub async fn snapshot_import(path: PathBuf) -> Result<(), String> {
     indexer::snapshot_import(&path).await.map_err(stringify)
@@ -273,15 +286,29 @@ pub async fn collection_info(
     }))
 }
 
-/// Lightweight scan/refresh — re-reads `~/.claude/projects`, indexes anything
+/// Lightweight scan/refresh — re-reads BOTH `~/.claude/projects` (modern)
+/// and `~/.claude/transcripts` (legacy, pre-v2.1.114) and indexes anything
 /// new. Returns how many sessions are now in the collection.
 #[tauri::command]
 pub async fn refresh_index(
     state: State<'_, AppStateArc>,
     path: Option<PathBuf>,
 ) -> Result<serde_json::Value, String> {
-    let root = path.unwrap_or_else(default_projects_root);
-    let sessions = parser::scan_dir(&root).map_err(stringify)?;
+    // Sync IO offload — see list_sessions for rationale.
+    let sessions = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<parser::Session>> {
+        if let Some(root) = path {
+            let mut s = parser::scan_dir(&root)?;
+            if let Ok(legacy) = parser::scan_transcripts_dir(&default_transcripts_root()) {
+                s.extend(legacy);
+            }
+            Ok(s)
+        } else {
+            scan_all_sources()
+        }
+    })
+    .await
+    .map_err(|e| format!("refresh_index scan task panicked: {e}"))?
+    .map_err(stringify)?;
     let total = sessions.len();
     let qdrant = state.qdrant().await.map_err(stringify)?;
     let embedder = state.embedder().await.map_err(stringify)?;
@@ -306,6 +333,83 @@ fn default_projects_root() -> PathBuf {
     } else {
         PathBuf::from(".claude/projects")
     }
+}
+
+/// Legacy `~/.claude/transcripts/` directory — flat dir of `ses_*.jsonl`
+/// files written by Claude Code before the silent rollout to
+/// `~/.claude/projects/` around v2.1.114. Returning this alongside the
+/// modern root is how Memex preserves the user's older 2–4 months of
+/// corpus that Anthropic stopped writing into.
+fn default_transcripts_root() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        let mut p = PathBuf::from(home);
+        p.push(".claude");
+        p.push("transcripts");
+        p
+    } else {
+        PathBuf::from(".claude/transcripts")
+    }
+}
+
+/// Unified scan over both the modern `projects/` tree and the legacy
+/// `transcripts/` flat dir. Each root is tolerated independently so a
+/// user who has only one of them (e.g. transcripts copied over from
+/// another machine, or a fresh install where projects/ hasn't been
+/// created yet) still gets a working dashboard. Only when BOTH roots
+/// fail do we propagate the error.
+fn scan_all_sources() -> anyhow::Result<Vec<parser::Session>> {
+    let projects_result = parser::scan_dir(&default_projects_root());
+    let legacy_result = parser::scan_transcripts_dir(&default_transcripts_root());
+
+    let mut out: Vec<parser::Session> = Vec::new();
+    let projects_err = match projects_result {
+        Ok(s) => {
+            out.extend(s);
+            None
+        }
+        Err(e) => Some(e),
+    };
+    // scan_transcripts_dir is already tolerant of a missing dir (returns
+    // Ok(empty)); a real parse failure is the only way we land here.
+    if let Ok(legacy) = legacy_result {
+        out.extend(legacy);
+    }
+
+    if out.is_empty() {
+        if let Some(e) = projects_err {
+            return Err(e);
+        }
+    }
+    Ok(out)
+}
+
+fn default_history_path() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        let mut p = PathBuf::from(home);
+        p.push(".claude");
+        p.push("history.jsonl");
+        p
+    } else {
+        PathBuf::from(".claude/history.jsonl")
+    }
+}
+
+/// Read `~/.claude/history.jsonl` and return per-day prompt counts plus
+/// the corpus span. Used as the *base layer* for the dashboard activity
+/// heatmap so the timeline reflects the user's full 6–12 month working
+/// history (history.jsonl survives the silent cleanup that wipes session
+/// jsonls).
+#[tauri::command]
+pub async fn prompt_history_stats(
+    path: Option<PathBuf>,
+) -> Result<parser::PromptHistoryStats, String> {
+    let p = path.unwrap_or_else(default_history_path);
+    // Move the (potentially slow) ~25 k-line read off the IPC worker.
+    let p2 = p.clone();
+    tokio::task::spawn_blocking(move || parser::read_prompt_history_stats(&p2))
+        .await
+        .map_err(|e| format!("history stats task panicked: {e}"))?
+        .map_err(stringify)
 }
 
 /// Lightweight session summary returned by `list_sessions` — no embeddings,
@@ -356,16 +460,33 @@ impl From<parser::Session> for SessionSummary {
     }
 }
 
-/// List sessions in `~/.claude/projects` sorted most-recent first.
-/// Pure parser walk — independent of Qdrant. Powers the Time Machine
-/// stack on app boot.
+/// List sessions across BOTH the modern `~/.claude/projects/` tree and the
+/// legacy `~/.claude/transcripts/` flat dir, sorted most-recent first. Pure
+/// parser walk — independent of Qdrant. Powers the Time Machine stack on
+/// app boot.
 #[tauri::command]
 pub async fn list_sessions(
     path: Option<PathBuf>,
     limit: Option<usize>,
 ) -> Result<Vec<SessionSummary>, String> {
-    let root = path.unwrap_or_else(default_projects_root);
-    let mut sessions = parser::scan_dir(&root).map_err(stringify)?;
+    // ~2 000 jsonl walks worth of file IO + JSON parsing — move it off
+    // the tokio worker so other IPC requests (prompt_history_stats,
+    // recall, …) aren't parked while we boot the dashboard.
+    let sessions = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<parser::Session>> {
+        if let Some(root) = path {
+            let mut s = parser::scan_dir(&root)?;
+            if let Ok(legacy) = parser::scan_transcripts_dir(&default_transcripts_root()) {
+                s.extend(legacy);
+            }
+            Ok(s)
+        } else {
+            scan_all_sources()
+        }
+    })
+    .await
+    .map_err(|e| format!("list_sessions scan task panicked: {e}"))?
+    .map_err(stringify)?;
+    let mut sessions = sessions;
     sessions.sort_by(|a, b| b.start_time.cmp(&a.start_time));
     let limit = limit.unwrap_or(60).min(sessions.len());
     Ok(sessions

@@ -54,9 +54,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   loadInitialStack();
   attachWatcherListener();
   attachRecallNotificationListener();
+  handleDashboardDeepLink();
   await pollUntilReady();
   startRecallPolling();
 });
+
+// Hash deep-link from dashboard.html — e.g. #open-replay=<session_id>
+function handleDashboardDeepLink() {
+  const m = (location.hash || "").match(/^#open-replay=([^&]+)/);
+  if (!m) return;
+  const sid = decodeURIComponent(m[1]);
+  // Clear hash so a refresh doesn't re-open.
+  history.replaceState(null, "", location.pathname);
+  // Wait for the stack to populate so openReplay has a valid container.
+  setTimeout(() => {
+    openReplay(sid, {}).catch((e) => console.warn("deep-link openReplay failed", e));
+  }, 600);
+}
 
 // ---------------------------------------------------------------------------
 // Background watcher → "Re-indexed N session(s)" fade-in chip + topbar count
@@ -94,27 +108,36 @@ async function attachWatcherListener() {
 
 async function attachRecallNotificationListener() {
   if (!tauriEvent || typeof tauriEvent.listen !== "function") return;
-  await tauriEvent.listen("open-replay-from-notification", async (event) => {
+  await tauriEvent.listen("open-replay-from-notification", (event) => {
     const p = event.payload || {};
     if (!p.session_id) return;
-    showWatcherChip(`Recall · opening past session for ${p.from_project || "this error"}`);
-    try {
-      await openReplay(p.session_id, {
-        project_name: p.match_project || p.match_title || "",
-      });
-    } catch (err) {
-      console.warn("recall openReplay failed:", err);
-      return;
+    // Do NOT auto-open the replay. Surface a recall banner the user can
+    // click to opt in — same UX as the in-app recall poller. Earlier
+    // versions called openReplay() here unconditionally, which felt
+    // invasive when the watcher fired in the background.
+    const matchPct = p.match_score ? `${Math.round(p.match_score * 100)}%` : "match";
+    const banner = document.getElementById("recall-banner");
+    const title = document.getElementById("recall-banner-title");
+    const detail = document.getElementById("recall-banner-detail");
+    if (banner && title && detail) {
+      title.textContent = "I've seen this error before";
+      detail.textContent = `${p.from_project || "?"} · ${matchPct} match in ${p.match_project || "?"}`;
+      banner.classList.remove("hidden");
+      // Park the payload so the banner's "Open replay" button (already
+      // wired in attachRecallBannerEvents) can open this specific hit
+      // when — and only when — the user clicks.
+      state.recall.lastBannerError = {
+        key: `notif::${p.session_id}::${(p.error_text || "").slice(0, 64)}`,
+        hits: [{
+          session_id: p.session_id,
+          project_name: p.match_project || "",
+          ai_title: p.match_title || "",
+        }],
+      };
+    } else {
+      // No banner in this build — at least leave a chip.
+      showWatcherChip(`Recall · click to open ${p.match_project || "past session"}`);
     }
-    setTimeout(() => {
-      if (state.replay.sessionId !== p.session_id) return;
-      const target = Math.min(
-        Math.max(parseInt(p.turn_index || 0, 10) || 0, 0),
-        state.replay.turns.length - 1,
-      );
-      state.replay.cursor = target;
-      renderReplayTurn(target);
-    }, 600);
   });
 }
 
@@ -145,11 +168,18 @@ function showWatcherChip(text) {
 // ---------------------------------------------------------------------------
 
 async function loadInitialStack() {
+  // Show the rail immediately (initially empty) so it doesn't pop in
+  // after the 1 989-session walk completes.
+  const rail = document.getElementById("timeRail");
+  if (rail) rail.classList.remove("hidden");
   try {
-    const sessions = await invoke("list_sessions", { limit: 60 });
+    const sessions = await invoke("list_sessions", { limit: 200 });
     state.stack = sessions || [];
     state.stackFocus = 0;
-    if (state.mode === "stack") renderStack();
+    if (state.mode === "stack") {
+      renderStack();
+      renderTimeRail();
+    }
   } catch (err) {
     console.warn("list_sessions failed:", err);
   }
@@ -195,6 +225,201 @@ function advanceStack(direction) {
   if (next === state.stackFocus) return;
   state.stackFocus = next;
   renderStack();
+  updateTimeRailMarker();
+}
+
+function jumpStackTo(i) {
+  const total = state.stack.length;
+  if (!total) return;
+  const next = Math.max(0, Math.min(total - 1, i));
+  if (next === state.stackFocus) return;
+  state.stackFocus = next;
+  renderStack();
+  updateTimeRailMarker();
+}
+
+// ---------------------------------------------------------------------------
+// Time Machine vertical rail — emulates the rail on the right edge of
+// macOS Time Machine. One tick per session (newest at top, oldest at
+// bottom). Smart group labels every time the "Today / Yesterday / N days
+// ago / month name" bucket changes. Click a tick to jump; mouse-down +
+// drag to scrub through the whole timeline.
+// ---------------------------------------------------------------------------
+
+function renderTimeRail() {
+  const rail = document.getElementById("timeRail");
+  if (!rail) return;
+  rail.innerHTML = "";
+  const n = state.stack.length;
+  if (!n) return;
+
+  // Top HUD — "Today" cap. Quiet, no arrow — the marker already shows position.
+  const hud = document.createElement("div");
+  hud.className = "time-rail-hud";
+  hud.innerHTML = `<span class="now">Today</span>`;
+  rail.appendChild(hud);
+
+  // Inner positioning container — content slots inside the inset.
+  const inner = document.createElement("div");
+  inner.className = "time-rail-inner";
+  inner.id = "timeRailInner";
+  rail.appendChild(inner);
+
+  // Bottom HUD — show the earliest date in the visible window so the user
+  // knows how far the rail spans.
+  const oldest = state.stack[state.stack.length - 1];
+  const oldestLabel = oldest ? relativeGroup(parseIso(oldest.start_iso)) || (oldest.start_iso || "").slice(0, 7) : "";
+  if (oldestLabel) {
+    const foot = document.createElement("div");
+    foot.className = "time-rail-foot";
+    foot.textContent = oldestLabel;
+    rail.appendChild(foot);
+  }
+
+  // 1. ticks (one per session)
+  let lastGroup = null;
+  for (let i = 0; i < n; i++) {
+    const s = state.stack[i];
+    const yPct = n === 1 ? 0 : (i / (n - 1)) * 100;
+    const tick = document.createElement("div");
+    tick.className = "tick";
+    if (s.has_errors) tick.classList.add("has-error");
+    tick.dataset.i = String(i);
+    tick.style.top = yPct + "%";
+    tick.title = formatTickTitle(s);
+    inner.appendChild(tick);
+
+    // Group label — only on the *first* session in each group, so labels
+    // don't pile up. They render as rotated (-90deg) chips on the rail.
+    const group = relativeGroup(parseIso(s.start_iso));
+    if (group && group !== lastGroup) {
+      const label = document.createElement("span");
+      label.className = "label";
+      label.textContent = group;
+      label.style.top = yPct + "%";
+      inner.appendChild(label);
+      lastGroup = group;
+    }
+  }
+
+  // 2. red marker
+  const marker = document.createElement("div");
+  marker.className = "marker";
+  marker.id = "timeRailMarker";
+  inner.appendChild(marker);
+
+  // 3. hover tooltip
+  const tip = document.createElement("div");
+  tip.className = "tip";
+  tip.id = "timeRailTip";
+  rail.appendChild(tip);
+
+  updateTimeRailMarker();
+  attachTimeRailHandlers(rail);
+}
+
+function updateTimeRailMarker() {
+  const rail = document.getElementById("timeRail");
+  if (!rail) return;
+  const n = state.stack.length;
+  if (!n) return;
+  const yPct = n === 1 ? 0 : (state.stackFocus / (n - 1)) * 100;
+  const marker = document.getElementById("timeRailMarker");
+  if (marker) marker.style.top = yPct + "%";
+
+  const inner = document.getElementById("timeRailInner");
+  const scope = inner || rail;
+  scope.querySelectorAll(".tick").forEach((t, i) => {
+    t.classList.toggle("active", i === state.stackFocus);
+  });
+}
+
+function attachTimeRailHandlers(rail) {
+  // Click any tick → jump.
+  rail.addEventListener("click", (e) => {
+    const tick = e.target.closest(".tick");
+    if (!tick) return;
+    const i = parseInt(tick.dataset.i, 10);
+    if (!Number.isNaN(i)) jumpStackTo(i);
+  });
+
+  // Drag-to-scrub: mousedown on the rail (anywhere), follow until mouseup.
+  // Coordinates are mapped against the *inner* element so the inset
+  // (top:36, bottom:64) lines up with the rendered tick positions.
+  let dragging = false;
+  const yToIndex = (clientY) => {
+    const inner = document.getElementById("timeRailInner") || rail;
+    const rect = inner.getBoundingClientRect();
+    if (rect.height <= 0) return 0;
+    const frac = (clientY - rect.top) / rect.height;
+    const clamped = Math.max(0, Math.min(1, frac));
+    return Math.round(clamped * (state.stack.length - 1));
+  };
+  const showTipAt = (clientY, i) => {
+    const tip = document.getElementById("timeRailTip");
+    if (!tip) return;
+    const s = state.stack[i];
+    if (!s) { tip.style.display = "none"; return; }
+    tip.textContent = formatTickTitle(s);
+    const railRect = rail.getBoundingClientRect();
+    tip.style.top = (clientY - railRect.top) + "px";
+    tip.style.transform = "translateY(-50%)";
+    tip.style.display = "block";
+  };
+  const hideTip = () => {
+    const tip = document.getElementById("timeRailTip");
+    if (tip) tip.style.display = "none";
+  };
+
+  rail.addEventListener("mousedown", (e) => {
+    if (!state.stack.length) return;
+    dragging = true;
+    const i = yToIndex(e.clientY);
+    jumpStackTo(i);
+    showTipAt(e.clientY, i);
+    e.preventDefault();
+  });
+  rail.addEventListener("mousemove", (e) => {
+    if (!state.stack.length) return;
+    const i = yToIndex(e.clientY);
+    showTipAt(e.clientY, i);
+    if (dragging) jumpStackTo(i);
+  });
+  rail.addEventListener("mouseleave", () => {
+    hideTip();
+  });
+  document.addEventListener("mouseup", () => {
+    if (dragging) { dragging = false; hideTip(); }
+  });
+}
+
+function parseIso(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function relativeGroup(date) {
+  if (!date) return "";
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  const d = new Date(date); d.setHours(0, 0, 0, 0);
+  const days = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return "Last week";
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  if (now.getFullYear() === d.getFullYear()) {
+    return d.toLocaleDateString("en-US", { month: "short" });
+  }
+  return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+}
+
+function formatTickTitle(s) {
+  const ts = (s.start_iso || "").slice(0, 16).replace("T", " ");
+  const proj = s.project_name || "?";
+  const title = (s.ai_title || "").slice(0, 32);
+  return title ? `${proj} · ${ts} — ${title}` : `${proj} · ${ts}`;
 }
 
 function renderStack() {
@@ -289,19 +514,25 @@ function renderStack() {
 
 function enterSearchMode() {
   state.mode = "search";
-  document
-    .getElementById("results")
+  const root = document.getElementById("results");
+  root
     .querySelectorAll(".stack-card, .stack-counter")
     .forEach((n) => n.remove());
+  // Hide the rail — it's specifically a "stack timeline" UI.
+  const rail = document.getElementById("timeRail");
+  if (rail) rail.classList.add("hidden");
 }
 
 function enterStackMode() {
   state.mode = "stack";
-  document
-    .getElementById("results")
+  const root = document.getElementById("results");
+  root
     .querySelectorAll(".card, .empty")
     .forEach((n) => n.remove());
+  const rail = document.getElementById("timeRail");
+  if (rail) rail.classList.remove("hidden");
   renderStack();
+  renderTimeRail();
 }
 
 async function pollUntilReady(attempt = 0) {
@@ -357,6 +588,9 @@ function attachEvents() {
     }
   });
 
+  document.getElementById("btn-dashboard").addEventListener("click", () => {
+    window.location.href = "dashboard.html";
+  });
   document.getElementById("btn-topology").addEventListener("click", onTopology);
   document.getElementById("btn-mix").addEventListener("click", openMixModal);
   document.getElementById("btn-snapshot").addEventListener("click", onSnapshot);

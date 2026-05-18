@@ -33,6 +33,51 @@
 
 ---
 
+## 🗄️ Why Memex exists — your AI memory survives Anthropic's silent migrations
+
+Claude Code rewrites its own session storage every few months **without
+announcing it** and ships auto-updates that silently delete the old files.
+On a typical user's machine right now:
+
+| | path | files |
+|---|---|---|
+| **Legacy** (pre-v2.1.114, ~Apr 2026) | `~/.claude/transcripts/ses_*.jsonl` | thousands of older sessions, no longer written to |
+| **Modern** | `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl` | last 30-ish days only |
+| **Prompt history** (survives migrations) | `~/.claude/history.jsonl` | every prompt you ever typed |
+
+Anthropic announced **none** of this. Search the official
+[CHANGELOG.md](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md)
+for "transcripts directory" or "migration" and you get zero hits. Meanwhile
+GitHub is full of OPEN data-loss reports —
+[#41591](https://github.com/anthropics/claude-code/issues/41591) (520 sessions
+silently deleted by 2.1.87 auto-update),
+[#54907](https://github.com/anthropics/claude-code/issues/54907) (all sessions
+lost across the 2.1.114 → 2.1.123 upgrade),
+[#48782](https://github.com/anthropics/claude-code/issues/48782) (160 jsonls
+× 60 702 messages gone),
+[#41458](https://github.com/anthropics/claude-code/issues/41458)
+(`cleanupPeriodDays: 99999` ignored, 490 sessions deleted anyway),
+[#23710](https://github.com/anthropics/claude-code/issues/23710),
+[#59248](https://github.com/anthropics/claude-code/issues/59248), …
+
+**What Memex does about it:**
+
+1. **Reads both legacy and modern jsonl paths** — `parser::parse_transcript_session`
+   handles the older `{type, timestamp, content}` schema, so your last
+   1 000–2 000 transcripts join the modern corpus on the same Qdrant point space.
+2. **Uses `~/.claude/history.jsonl` as the timeline base layer** —
+   24 000+ prompts across 6–12 months survive every Claude Code migration.
+   The dashboard's heatmap is drawn from this, with indexed sessions overlaid.
+3. **One-click Qdrant snapshot** — once you've indexed, your corpus is
+   yours. Future Anthropic cleanups can't touch the points sitting in
+   `qdrant_storage/`.
+
+Memex's reason to exist isn't "vector search on top of Claude Code". It's
+**"vector search on top of a corpus you actually own — preserved against
+Anthropic's silent migrations."**
+
+---
+
 ## 🛑 Why Memex isn't a chatbot
 
 Qdrant Vector Space Day 2026's prompt is unusually direct:

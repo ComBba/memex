@@ -396,8 +396,14 @@ async fn tool_call(state: &Arc<McpState>, params: Value) -> Result<Value> {
         }
         "list_recent_sessions" => {
             let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(30) as usize;
-            let root = default_projects_root();
-            let mut sessions = parser::scan_dir(&root)?;
+            // Unify modern projects/ + legacy transcripts/ — same behaviour as
+            // the Tauri command `list_sessions` so any MCP client sees the
+            // same corpus the desktop UI does (pre-v2.1.114 transcripts
+            // included).
+            let mut sessions = parser::scan_dir(&default_projects_root())?;
+            if let Ok(legacy) = parser::scan_transcripts_dir(&default_transcripts_root()) {
+                sessions.extend(legacy);
+            }
             sessions.sort_by(|a, b| b.start_time.cmp(&a.start_time));
             let summaries: Vec<crate::commands::SessionSummary> = sessions
                 .into_iter()
@@ -461,5 +467,16 @@ fn default_projects_root() -> PathBuf {
         p
     } else {
         PathBuf::from(".claude/projects")
+    }
+}
+
+fn default_transcripts_root() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        let mut p = PathBuf::from(home);
+        p.push(".claude");
+        p.push("transcripts");
+        p
+    } else {
+        PathBuf::from(".claude/transcripts")
     }
 }

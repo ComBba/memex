@@ -456,18 +456,25 @@
 
   <section class="hero">
     <div class="wrap">
-      <div class="eyebrow">🛑 Think Outside the Bot · zero LLM at runtime</div>
-      <h1>Your AI session history<br>as a navigable spatial memory.</h1>
+      <div class="eyebrow">🗄️ Anthropic이 잊어도 Memex는 기억합니다</div>
+      <h1>Your AI session history<br>survives Anthropic's silent migrations.</h1>
       <p class="tagline">
-        Memex turns every Claude&nbsp;Code session you've ever run
-        into a <strong style="color:var(--fg)">non-chatbot</strong> desktop UI
-        powered by six Qdrant primitives.
+        Claude Code rewrites its session storage every few months
+        <strong style="color:var(--fg)">without announcement</strong> and
+        auto-updates silently delete the old files
+        (<a href="https://github.com/anthropics/claude-code/issues/41591" target="_blank" rel="noopener">#41591</a> ·
+        <a href="https://github.com/anthropics/claude-code/issues/54907" target="_blank" rel="noopener">#54907</a> ·
+        <a href="https://github.com/anthropics/claude-code/issues/48782" target="_blank" rel="noopener">#48782</a>).
+        Memex reads both the legacy <code>~/.claude/transcripts/</code>
+        and modern <code>~/.claude/projects/</code> paths, indexes them
+        into a local Qdrant you own, and gives you a snapshot button.
       </p>
       <p class="lede">
         <em>Vannevar Bush imagined the original
         <a href="https://en.wikipedia.org/wiki/Memex" target="_blank" rel="noopener">Memex</a>
         in 1945 — a personal knowledge machine built on associative trails,
-        not search boxes.</em> Eighty years later this is its desktop reincarnation.
+        not search boxes.</em> Eighty years later this is its desktop reincarnation —
+        wrapped in a non-chatbot UI powered by six Qdrant primitives.
       </p>
       <div class="cta">
         <a class="btn primary" href="https://github.com/sgwannabe/memex" target="_blank" rel="noopener">
