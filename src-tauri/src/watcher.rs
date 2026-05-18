@@ -335,6 +335,12 @@ async fn maybe_fire_recall(
     {
         eprintln!("[memex] notification show failed: {e:#}");
     }
+    // macOS belt-and-suspenders: tauri-plugin-notification uses the
+    // deprecated NSUserNotification API which can be silently dropped on
+    // ad-hoc-signed bundles. Fire the same payload via `osascript display
+    // notification` so the user is guaranteed to see something. Runs in a
+    // detached blocking task so we don't park the tokio worker.
+    macos_notify_via_osascript(title, &body);
 
     // Emit deep-link event so the frontend can auto-open the replay of the
     // matched past session whenever the main window comes into focus.
@@ -435,6 +441,7 @@ async fn maybe_fire_predict(
     {
         eprintln!("[memex] predict notification show failed: {e:#}");
     }
+    macos_notify_via_osascript(title, &body);
 
     let _ = app.emit(
         "open-replay-from-notification",
@@ -455,6 +462,39 @@ async fn maybe_fire_predict(
     );
 
     Ok(true)
+}
+
+/// macOS osascript fallback. We escape double-quotes + backslashes so an
+/// untrusted error_text can't break out of the AppleScript string literal,
+/// then fire-and-forget. No-op on non-macOS targets.
+fn macos_notify_via_osascript(title: &str, body: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        fn escape(s: &str) -> String {
+            s.replace('\\', "\\\\").replace('"', "\\\"")
+        }
+        // Trim to keep the banner readable + avoid AppleScript truncation quirks.
+        let safe_title: String = escape(title).chars().take(120).collect();
+        let safe_body: String = escape(body).chars().take(220).collect();
+        let script = format!(
+            "display notification \"{safe_body}\" with title \"{safe_title}\""
+        );
+        tauri::async_runtime::spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                std::process::Command::new("osascript")
+                    .args(["-e", &script])
+                    .status()
+            })
+            .await;
+            if let Ok(Err(e)) = result {
+                eprintln!("[memex] osascript notify failed: {e}");
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (title, body);
+    }
 }
 
 /// Walk the session's last few turns and return the most recent error
