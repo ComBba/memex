@@ -531,6 +531,11 @@ function renderTopology3D(topo, mount) {
   disposeTopology();
   mount.innerHTML = "";
   const { nodes, edges } = topo;
+  const statsEl = document.getElementById("topology-stats");
+  const legendEl = document.getElementById("topology-legend");
+  if (statsEl) statsEl.innerHTML = "";
+  if (legendEl) legendEl.innerHTML = "";
+
   if (!nodes.length) {
     mount.innerHTML = `<div class="empty">No nodes yet — re-index first.</div>`;
     return;
@@ -540,7 +545,37 @@ function renderTopology3D(topo, mount) {
     return;
   }
 
-  // Transform backend data into the shape 3d-force-graph expects.
+  // ---- Aggregate project metadata for legend + cluster force --------------
+  const projects = new Map(); // project → { color, count, earliest, latest, sessionIds }
+  for (const n of nodes) {
+    const key = n.project_name || "?";
+    let p = projects.get(key);
+    if (!p) {
+      p = {
+        name: key,
+        color: projectColor(key),
+        count: 0,
+        earliest: n.start_iso || "",
+        latest: n.start_iso || "",
+        sessionIds: new Set(),
+      };
+      projects.set(key, p);
+    }
+    p.count++;
+    p.sessionIds.add(n.session_id);
+    if (n.start_iso && (!p.earliest || n.start_iso < p.earliest)) p.earliest = n.start_iso;
+    if (n.start_iso && (!p.latest || n.start_iso > p.latest)) p.latest = n.start_iso;
+  }
+  const projectList = Array.from(projects.values()).sort((a, b) => b.count - a.count);
+
+  // Count cross-project edges = "ideas that bridged your work".
+  const nodeProject = new Map(nodes.map((n) => [n.session_id, n.project_name || "?"]));
+  let bridges = 0;
+  for (const e of edges) {
+    if (nodeProject.get(e.a) !== nodeProject.get(e.b)) bridges++;
+  }
+
+  // ---- Graph data ---------------------------------------------------------
   const graphData = {
     nodes: nodes.map((n) => ({
       id: n.session_id,
@@ -550,17 +585,20 @@ function renderTopology3D(topo, mount) {
       user_turns: n.user_turns || 0,
       tool_count: n.tool_count || 0,
       color: projectColor(n.project_name),
-      // Node size scales with conversation volume.
       val: Math.max(1, Math.sqrt((n.user_turns || 0) + 1)),
     })),
-    links: edges.map((e) => ({
-      source: e.a,
-      target: e.b,
-      // similarity ∈ [0, 1] — higher = stronger link
-      similarity: Math.max(0, Math.min(1, 1 - e.distance)),
-    })),
+    links: edges.map((e) => {
+      const isCross = nodeProject.get(e.a) !== nodeProject.get(e.b);
+      return {
+        source: e.a,
+        target: e.b,
+        similarity: Math.max(0, Math.min(1, 1 - e.distance)),
+        cross: isCross,
+      };
+    }),
   };
 
+  // ---- Build 3D scene -----------------------------------------------------
   const G = window.ForceGraph3D({
     controlType: "orbit",
     backgroundColor: "#16161a",
@@ -568,30 +606,22 @@ function renderTopology3D(topo, mount) {
     .graphData(graphData)
     .nodeRelSize(5)
     .nodeVal((n) => n.val)
-    .nodeColor((n) => n.color)
+    .nodeColor((n) => (highlightedProject && n.project !== highlightedProject ? dim(n.color) : n.color))
     .nodeOpacity(0.95)
     .nodeResolution(16)
-    .nodeLabel((n) => {
-      const ts = (n.start_iso || "").slice(0, 16).replace("T", " ");
-      return `
-        <div style="font-family:-apple-system,sans-serif;font-size:12px;
-                    background:rgba(20,20,22,0.92);color:#fff;
-                    padding:8px 11px;border-radius:8px;
-                    border:1px solid rgba(255,255,255,0.18);
-                    box-shadow:0 8px 28px rgba(0,0,0,0.55);
-                    max-width:280px;line-height:1.4">
-          <strong style="color:${n.color}">${escapeHtml(n.project)}</strong><br/>
-          <span style="color:rgba(255,255,255,0.7)">${escapeHtml(n.title)}</span><br/>
-          <span style="font-family:ui-monospace,monospace;font-size:10.5px;
-                       color:rgba(255,255,255,0.5)">
-            ${ts} · ${n.user_turns} user · ${n.tool_count} tools
-          </span>
-        </div>`;
-    })
-    .linkColor(() => "rgba(10, 132, 255, 0.85)")
-    .linkOpacity(0.55)
-    .linkWidth((l) => 0.4 + l.similarity * 2.4)
-    .linkDirectionalParticles(0)
+    .nodeLabel((n) => topologyTooltip(n))
+    // Cross-project bridges in white = "look here, an idea jumped between
+    // projects". In-project edges in muted blue = the within-cluster glue.
+    .linkColor((l) =>
+      l.cross
+        ? `rgba(255, 214, 10, ${0.55 + l.similarity * 0.35})`
+        : `rgba(10, 132, 255, ${0.30 + l.similarity * 0.45})`,
+    )
+    .linkOpacity(1)
+    .linkWidth((l) => (l.cross ? 1.4 + l.similarity * 2.5 : 0.4 + l.similarity * 1.6))
+    .linkDirectionalParticles((l) => (l.cross ? 2 : 0))
+    .linkDirectionalParticleWidth(1.2)
+    .linkDirectionalParticleColor(() => "#ffd60a")
     .onNodeClick((node) => {
       document.getElementById("topology-modal").close();
       selectSession(node.id);
@@ -600,13 +630,168 @@ function renderTopology3D(topo, mount) {
       mount.style.cursor = node ? "pointer" : "default";
     });
 
-  // Tighter clustering: shorten target link distance for similar pairs.
+  // Per-link target distance — similar pairs attract tighter.
   G.d3Force("link").distance((l) => 60 + (1 - l.similarity) * 220);
-  G.d3Force("charge").strength(-80);
-  // Auto-fit camera to graph after physics settles.
-  setTimeout(() => G.zoomToFit(900, 80), 1200);
+  G.d3Force("charge").strength(-90);
+  // Custom clustering force: pull same-project nodes toward their group centroid.
+  G.d3Force("project-cluster", projectClusterForce(0.06));
+  setTimeout(() => G.zoomToFit(900, 80), 1400);
 
   topologyGraph = G;
+
+  // ---- Stats bar + legend -------------------------------------------------
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="topology-stat">
+        <span class="stat-num">${projectList.length}</span>
+        <span class="stat-label">projects</span>
+      </div>
+      <div class="topology-stat">
+        <span class="stat-num">${nodes.length}</span>
+        <span class="stat-label">sessions</span>
+      </div>
+      <div class="topology-stat">
+        <span class="stat-num">${bridges}</span>
+        <span class="stat-label">bridges</span>
+      </div>
+    `;
+  }
+
+  if (legendEl) {
+    legendEl.innerHTML = "";
+    const heading = document.createElement("div");
+    heading.className = "legend-heading";
+    heading.textContent = "Projects";
+    legendEl.appendChild(heading);
+
+    for (const p of projectList) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "legend-row";
+      row.dataset.project = p.name;
+      const earliest = p.earliest.slice(0, 10);
+      const latest = p.latest.slice(0, 10);
+      const range = earliest === latest ? earliest : `${earliest} → ${latest}`;
+      row.innerHTML = `
+        <span class="legend-dot" style="background:${p.color}"></span>
+        <span class="legend-text">
+          <span class="legend-name">${escapeHtml(p.name)}</span>
+          <span class="legend-meta">${p.count} session${p.count > 1 ? "s" : ""} · ${range}</span>
+        </span>
+      `;
+      row.addEventListener("mouseenter", () => setHighlight(p.name));
+      row.addEventListener("mouseleave", () => setHighlight(null));
+      row.addEventListener("click", () => focusCluster(p.name));
+      legendEl.appendChild(row);
+    }
+
+    const explainer = document.createElement("div");
+    explainer.className = "legend-explainer";
+    explainer.innerHTML = `
+      <div class="legend-mini">
+        <span class="legend-line in-project"></span>
+        in-project edge
+      </div>
+      <div class="legend-mini">
+        <span class="legend-line cross-project"></span>
+        cross-project bridge
+      </div>
+      <p>Hover a row to highlight. Click to focus the cluster.</p>
+    `;
+    legendEl.appendChild(explainer);
+  }
+}
+
+// ---- Highlight + focus -----------------------------------------------------
+
+let highlightedProject = null;
+
+function setHighlight(project) {
+  highlightedProject = project;
+  if (!topologyGraph) return;
+  // Re-trigger node colorization by re-applying the color fn.
+  topologyGraph.nodeColor((n) =>
+    highlightedProject && n.project !== highlightedProject ? dim(n.color) : n.color,
+  );
+  // Highlight legend row.
+  document.querySelectorAll(".legend-row").forEach((row) => {
+    row.classList.toggle("active", row.dataset.project === project);
+  });
+}
+
+function focusCluster(project) {
+  if (!topologyGraph) return;
+  const ids = new Set(
+    topologyGraph
+      .graphData()
+      .nodes.filter((n) => n.project === project)
+      .map((n) => n.id),
+  );
+  topologyGraph.zoomToFit(900, 60, (n) => ids.has(n.id));
+}
+
+function dim(hex) {
+  // Convert "#rrggbb" to muted rgba — perceived 22% alpha.
+  if (!hex || hex[0] !== "#" || hex.length < 7) return "rgba(255,255,255,0.15)";
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},0.18)`;
+}
+
+function topologyTooltip(n) {
+  const ts = (n.start_iso || "").slice(0, 16).replace("T", " ");
+  return `
+    <div style="font-family:-apple-system,sans-serif;font-size:12px;
+                background:rgba(20,20,22,0.94);color:#fff;
+                padding:8px 11px;border-radius:8px;
+                border:1px solid rgba(255,255,255,0.18);
+                box-shadow:0 8px 28px rgba(0,0,0,0.55);
+                max-width:300px;line-height:1.4">
+      <strong style="color:${n.color}">${escapeHtml(n.project)}</strong><br/>
+      <span style="color:rgba(255,255,255,0.8)">${escapeHtml(n.title)}</span><br/>
+      <span style="font-family:ui-monospace,monospace;font-size:10.5px;
+                   color:rgba(255,255,255,0.55)">
+        ${ts} · ${n.user_turns} user · ${n.tool_count} tools
+      </span>
+    </div>`;
+}
+
+// Custom d3 force pulling same-project nodes toward their group centroid.
+// Combined with the link-distance force this produces clean per-project
+// bubbles connected by yellow "bridge" edges where ideas crossed over.
+function projectClusterForce(strength) {
+  let nodes = [];
+  function force(alpha) {
+    const centroids = new Map();
+    for (const n of nodes) {
+      let c = centroids.get(n.project);
+      if (!c) {
+        c = { x: 0, y: 0, z: 0, count: 0 };
+        centroids.set(n.project, c);
+      }
+      c.x += n.x || 0;
+      c.y += n.y || 0;
+      c.z += n.z || 0;
+      c.count++;
+    }
+    for (const c of centroids.values()) {
+      c.x /= c.count;
+      c.y /= c.count;
+      c.z /= c.count;
+    }
+    for (const n of nodes) {
+      const c = centroids.get(n.project);
+      if (!c) continue;
+      n.vx = (n.vx || 0) + (c.x - n.x) * strength * alpha;
+      n.vy = (n.vy || 0) + (c.y - n.y) * strength * alpha;
+      n.vz = (n.vz || 0) + (c.z - n.z) * strength * alpha;
+    }
+  }
+  force.initialize = (_nodes) => {
+    nodes = _nodes;
+  };
+  return force;
 }
 
 const COLOR_PALETTE = [

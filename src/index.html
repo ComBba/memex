@@ -65,10 +65,21 @@
 
     <dialog id="topology-modal" class="modal">
       <header>
-        <h3>Topology — MST of session content vectors</h3>
+        <div>
+          <h3>Topology — your session galaxy</h3>
+          <p class="modal-sub">Each dot is one session · same color = same project · short edges = semantically close · longer cross-project edges = ideas that bridged your work.</p>
+        </div>
         <button type="button" class="btn ghost" data-close>Close</button>
       </header>
-      <div id="topology-canvas" class="topology"></div>
+      <div class="topology-body">
+        <div id="topology-canvas" class="topology"></div>
+        <aside class="topology-side" id="topology-side">
+          <div class="topology-stats" id="topology-stats">
+            <span class="empty muted">Computing clusters…</span>
+          </div>
+          <div class="topology-legend" id="topology-legend"></div>
+        </aside>
+      </div>
     </dialog>
 
     <dialog id="mix-modal" class="modal">
