@@ -33,6 +33,27 @@ Plan v3.2의 24 KICK을 7 phase로 분할한 후 SDD→TDD 문서 작성. 수립
 
 **Status**: 9 항목 보강. 8 파일 수정.
 
+## v0.4 — multi-agent ingest addendum (2026-05-18, post-`NO_FURTHER_CHANGES`)
+
+**Driver**: User decision to expand product scope to BOTH Claude Code AND Codex CLI sessions, triggered by AGENTS.md investigation.
+
+**New file**:
+- `v0.4-multi-agent-addendum.md` — KH-01 multi-agent ingest, P1/P3/P5/P7 amendments
+
+**Changes (additive, does NOT invalidate v0.3 specs)**:
+- New KICK `KH-01` (multi-agent ingest)
+- P1 SandboxRoot extended to multi-root (`Vec<PathBuf>`) — 6 new tests, AC-1.1.6 ~ 1.1.9
+- P3 v3 schema adds `source_agent` keyword payload + index — 4 new integration tests, AC-3.1.6 ~ 3.1.8
+- NEW `src-tauri/src/codex_parser.rs` module (~300 LOC) — assigned to P5 phase, AC-Codex.1 ~ 5
+- P2 `--agent claude|codex|all` CLI flag
+- P7 demo narrative gains ~30s "unified Claude+Codex timeline" frame
+
+**Time budget**: +2 days net within original 14-day window. P5 codex_parser becomes critical path before D-8 retrieval-quality gate.
+
+**Status**: v0.3 phase docs remain frozen (NO_FURTHER_CHANGES). v0.4 addendum is the authoritative source for KH-01 work. Specialists read both.
+
+---
+
 ## v0.3 — review-2 + review-3 보강 (2026-05-18)
 
 **Driver**: `review-2.md` 추가 검출 + `review-3.md` 최종 확인
