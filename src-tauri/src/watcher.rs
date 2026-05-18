@@ -441,49 +441,24 @@ async fn maybe_fire_predict(
     Ok(true)
 }
 
-/// Surface a system notification. On macOS we shell out to `osascript
-/// display notification` exclusively — `tauri-plugin-notification` v2 on
-/// macOS goes through the deprecated `NSUserNotification` API via
-/// `notify-rust`/`mac-notification-sys`, which on ad-hoc-signed bundles can
-/// either fire a *second* notification with a different (helper-bundle)
-/// icon, or get silently dropped. AppleScript gives us a single reliable
-/// banner. On other platforms we fall back to the plugin so Linux/Windows
-/// keep working.
+/// Surface a system notification. We go exclusively through
+/// `tauri-plugin-notification`. The earlier osascript fallback worked but
+/// every notification fired through `osascript display notification` is
+/// owned by Script Editor in macOS's eyes — clicking it activates Script
+/// Editor instead of Memex, which defeats the deep-link UX. Through the
+/// plugin the notification is owned by Memex.app (LaunchServices already
+/// has it registered with `activityTypes: NOTIFICATION#:dev.sgwannabe.memex`)
+/// so a click activates Memex and the frontend's existing
+/// `open-replay-from-notification` listener picks up the deep-link.
 fn notify_system(app: &AppHandle, title: &str, body: &str) {
-    #[cfg(target_os = "macos")]
+    if let Err(e) = app
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
     {
-        let _ = app;
-        fn escape(s: &str) -> String {
-            s.replace('\\', "\\\\").replace('"', "\\\"")
-        }
-        let safe_title: String = escape(title).chars().take(120).collect();
-        let safe_body: String = escape(body).chars().take(220).collect();
-        let script = format!(
-            "display notification \"{safe_body}\" with title \"{safe_title}\""
-        );
-        tauri::async_runtime::spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                std::process::Command::new("osascript")
-                    .args(["-e", &script])
-                    .status()
-            })
-            .await;
-            if let Ok(Err(e)) = result {
-                eprintln!("[memex] osascript notify failed: {e}");
-            }
-        });
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        if let Err(e) = app
-            .notification()
-            .builder()
-            .title(title)
-            .body(body)
-            .show()
-        {
-            eprintln!("[memex] notification show failed: {e:#}");
-        }
+        eprintln!("[memex] notification show failed: {e:#}");
     }
 }
 
