@@ -48,6 +48,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   attachStackEvents();
   attachReplayEvents();
   attachRecallBannerEvents();
+  // Register the self-contained Mix & Match picker (search + add inside the modal).
+  attachMixPickerEvents();
   // Kick off both pollers; the stack uses pure jsonl parsing so it succeeds
   // even before Qdrant comes up, giving the user something to look at
   // immediately.
@@ -1400,7 +1402,171 @@ function projectColor(name) {
 function openMixModal() {
   renderMixDropzones();
   document.getElementById("mix-results").innerHTML = "";
+  // Clear last picker state so the modal opens fresh.
+  const pickerInput = document.getElementById("mix-picker-input");
+  const pickerResults = document.getElementById("mix-picker-results");
+  if (pickerInput) {
+    pickerInput.value = "";
+  }
+  if (pickerResults) {
+    pickerResults.innerHTML = "";
+  }
   document.getElementById("mix-modal").showModal();
+  updateRunMixButton();
+}
+
+// Self-contained picker so the modal doesn't depend on stack cards that the
+// modal backdrop blocks.
+//
+// runMixPickerSearch() — invoke lens_search to populate the picker's result
+// list. Each row carries [+ pos] [− neg] buttons that call addToMix() the
+// same way the main-view stack-card buttons do.
+async function runMixPickerSearch() {
+  const input = document.getElementById("mix-picker-input");
+  const results = document.getElementById("mix-picker-results");
+  if (!input || !results) return;
+  const q = input.value.trim();
+  if (!q) {
+    results.innerHTML = "";
+    const empty = document.createElement("p");
+    empty.className = "mix-picker-empty";
+    empty.textContent =
+      "Type a query above and press ↵, or paste a session_id.";
+    results.appendChild(empty);
+    return;
+  }
+  // If the query looks like a session_id UUID, treat it as a direct id pick
+  // (no Qdrant round-trip needed).
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRe.test(q)) {
+    results.innerHTML = "";
+    renderMixPickerRow(
+      { session_id: q, project_name: "(by id)", ai_title: q, start_iso: "" },
+      results,
+    );
+    return;
+  }
+  // Otherwise: lens search against the live collection.
+  results.innerHTML = "";
+  const pending = document.createElement("p");
+  pending.className = "mix-picker-empty";
+  pending.textContent = "Searching…";
+  results.appendChild(pending);
+  let hits = [];
+  try {
+    hits = await invoke("lens_search", {
+      query: q,
+      weights: state.weights,
+      limit: 12,
+    });
+  } catch (err) {
+    results.innerHTML = "";
+    const failed = document.createElement("p");
+    failed.className = "mix-picker-empty";
+    failed.textContent = `Search failed: ${String(err)}`;
+    results.appendChild(failed);
+    return;
+  }
+  if (!hits || !hits.length) {
+    results.innerHTML = "";
+    const none = document.createElement("p");
+    none.className = "mix-picker-empty";
+    none.textContent = "No matches.";
+    results.appendChild(none);
+    return;
+  }
+  results.innerHTML = "";
+  for (const h of hits) {
+    renderMixPickerRow(h, results);
+  }
+}
+
+// Builds one picker row using DOM createElement + textContent throughout.
+// Avoids innerHTML so untrusted session metadata can never be interpreted
+// as markup, even if a future code path forgets to escape.
+function renderMixPickerRow(hit, parent) {
+  const row = document.createElement("div");
+  row.className = "mix-picker-row";
+
+  const meta = document.createElement("div");
+  meta.className = "mix-picker-meta";
+
+  const project = hit.project_name || "(unknown project)";
+  const title = (hit.ai_title || "").trim() || "(untitled)";
+  const start = hit.start_iso ? hit.start_iso.slice(0, 16).replace("T", " ") : "";
+
+  const projSpan = document.createElement("span");
+  projSpan.className = "mix-picker-project";
+  projSpan.textContent = project;
+
+  const titleSpan = document.createElement("span");
+  titleSpan.className = "mix-picker-title";
+  titleSpan.textContent = title.slice(0, 80);
+
+  const startSpan = document.createElement("span");
+  startSpan.className = "mix-picker-start";
+  startSpan.textContent = start;
+
+  meta.append(projSpan, titleSpan, startSpan);
+
+  const actions = document.createElement("div");
+  actions.className = "mix-picker-actions";
+  const posBtn = document.createElement("button");
+  posBtn.type = "button";
+  posBtn.className = "btn ghost xs";
+  posBtn.textContent = "+ pos";
+  posBtn.title = "Add as positive anchor";
+  posBtn.addEventListener("click", () => {
+    addToMix("positive", hit.session_id);
+    posBtn.disabled = true;
+    posBtn.textContent = "✓ pos";
+  });
+  const negBtn = document.createElement("button");
+  negBtn.type = "button";
+  negBtn.className = "btn ghost xs";
+  negBtn.textContent = "− neg";
+  negBtn.title = "Add as negative (anti-context) anchor";
+  negBtn.addEventListener("click", () => {
+    addToMix("negative", hit.session_id);
+    negBtn.disabled = true;
+    negBtn.textContent = "✓ neg";
+  });
+  actions.append(posBtn, negBtn);
+  row.append(meta, actions);
+  parent.appendChild(row);
+}
+
+function attachMixPickerEvents() {
+  const input = document.getElementById("mix-picker-input");
+  if (!input) return;
+  let debounce = null;
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      runMixPickerSearch();
+    }
+  });
+  input.addEventListener("input", () => {
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      // Auto-search on quiet pause if the user typed at least 2 chars.
+      if (input.value.trim().length >= 2) {
+        runMixPickerSearch();
+      }
+    }, 350);
+  });
+}
+
+// Keeps the [Run discovery] button + hint message in sync with state.
+function updateRunMixButton() {
+  const btn = document.getElementById("btn-run-mix");
+  if (!btn) return;
+  const ready =
+    state.mix.positive.length > 0 || state.mix.negative.length > 0;
+  btn.disabled = !ready;
+  btn.title = ready
+    ? "Run Qdrant Discovery on your selections"
+    : "Add at least one positive OR negative session first";
 }
 
 function addToMix(side, sessionId) {
@@ -1408,11 +1574,19 @@ function addToMix(side, sessionId) {
     state.mix[side].push(sessionId);
   }
   renderMixDropzones();
+  updateRunMixButton();
 }
 
 function removeFromMix(side, sessionId) {
   state.mix[side] = state.mix[side].filter((s) => s !== sessionId);
   renderMixDropzones();
+  updateRunMixButton();
+  // Also flip the corresponding picker row's button back to its un-added
+  // state if it's still on screen — re-running the search refreshes it.
+  const input = document.getElementById("mix-picker-input");
+  if (input && input.value.trim()) {
+    runMixPickerSearch();
+  }
 }
 
 function renderMixDropzones() {
@@ -1422,7 +1596,10 @@ function renderMixDropzones() {
     if (!state.mix[side].length) {
       const hint = document.createElement("span");
       hint.className = "dropzone-hint";
-      hint.textContent = "click + pos / − neg on a card to add…";
+      hint.textContent =
+        side === "positive"
+          ? "search above OR click + pos on a card behind the modal…"
+          : "search above OR click − neg on a card behind the modal…";
       root.appendChild(hint);
       continue;
     }

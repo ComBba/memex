@@ -91,17 +91,42 @@
       </header>
       <div class="mix-body">
         <p class="side-desc">
-          Drag two or more results below as positives (anchors) and at least
-          one as negative (anti-context). Discovery will rank similar
-          sessions accordingly.
+          Tell Memex what you like (positive) and what to avoid (negative),
+          then it finds sessions that lean toward the positives and away
+          from the negatives. Add at least one positive OR one negative
+          to enable discovery.
         </p>
+
+        <!-- Self-contained session picker. The previous modal had only two
+             dropzones that listed selected items, but the `+ pos` / `− neg`
+             buttons that populate them live on cards in the main view —
+             which the `<dialog>.showModal()` backdrop blocks. Users who
+             opened this modal first had no way to add anything from inside
+             it. The picker below makes the modal self-contained: search the
+             collection, click + pos / − neg per row. The main-view buttons
+             still work for users who pre-stage selections before opening. -->
+        <div class="mix-picker">
+          <label class="mix-picker-lbl" for="mix-picker-input">
+            <span>Find sessions to add (type a query, press ↵)</span>
+            <input
+              type="text"
+              id="mix-picker-input"
+              class="mix-picker-input"
+              placeholder='e.g. "auth refactor", "cargo build error", or paste a session_id'
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
+          <div id="mix-picker-results" class="mix-picker-results" role="listbox" aria-label="Search results"></div>
+        </div>
+
         <label>Positive sessions</label>
         <div id="mix-positive" class="dropzone" data-side="positive">
-          <span class="dropzone-hint">drop ids here…</span>
+          <span class="dropzone-hint">search above OR click + pos on a card behind the modal…</span>
         </div>
         <label>Negative sessions</label>
         <div id="mix-negative" class="dropzone" data-side="negative">
-          <span class="dropzone-hint">drop ids here…</span>
+          <span class="dropzone-hint">search above OR click − neg on a card behind the modal…</span>
         </div>
         <button id="btn-run-mix" type="button" class="btn primary">Run discovery</button>
         <div id="mix-results" class="mix-results"></div>
