@@ -583,18 +583,42 @@ pub async fn tail_recent_errors(
             if latest_err.is_some() {
                 break;
             }
+            // Only structured tool_result errors surface to the banner.
+            // The previous code ALSO matched any text line containing
+            // "error:" / "traceback" / "panic" — including stderr passthrough
+            // from one-off shell commands ("jq: error: syntax error",
+            // "rg: no match", "cat: file not found"), the user's own prose
+            // ("I'm getting an error: …" when ASKING), test output that
+            // mentions "panic" as a name, and parse-error strings inside
+            // JSON literals. None of those are actionable as a recall hint
+            // — they were simply noise. Structured tool_results with
+            // `is_error: true` come from Claude's tool-use protocol and
+            // have already been validated as a real failure by the tool
+            // runtime; those ARE worth surfacing.
             if let Some(err) = turn.tool_results.iter().rev().find(|r| r.is_error) {
                 let head: String = err.content.chars().take(800).collect();
+                // Filter out shell-stderr passthrough that wraps trivial
+                // CLI quoting issues. These are non-actionable noise —
+                // they reflect a typo, not a recurring bug.
+                let lower = head.to_ascii_lowercase();
+                let is_shell_stderr_noise = lower.starts_with("exit code")
+                    || lower.contains("syntax error")
+                    || lower.contains("command not found")
+                    || lower.contains("no such file or directory")
+                    || lower.contains("unbound variable")
+                    || lower.contains("parse error");
+                if is_shell_stderr_noise {
+                    // Skip silently — keep looking through older turns for
+                    // a real (non-shell-noise) tool error.
+                    continue;
+                }
                 latest_err = Some(head);
                 break;
             }
-            for line in turn.text.lines().rev() {
-                let lower = line.to_ascii_lowercase();
-                if lower.contains("error:") || lower.contains("traceback") || lower.contains("panic") {
-                    latest_err = Some(line.trim().to_string());
-                    break;
-                }
-            }
+            // INTENTIONALLY: no body-text regex. Plain `error:` in user
+            // prose ("I'm getting an error: …") is the user asking a
+            // question, not the runtime encountering one — surfacing
+            // recall banners for those was confusing.
         }
 
         let entry_err = latest_err.map(|err| RecentError {
