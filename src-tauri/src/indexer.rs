@@ -1264,7 +1264,10 @@ pub async fn predict_next_actions(
             _ => None,
         })
         .context("active session payload is missing source_path")?;
-    let active = crate::parser::parse_session(StdPath::new(&source_path))?;
+    // SECURITY (KF-01): `source_path` comes from a Qdrant payload — treat
+    // it as untrusted. Sandbox-validate before parsing.
+    let validated = crate::sec::validate_session_path(StdPath::new(&source_path))?;
+    let active = crate::parser::parse_session(&validated)?;
     if active.turns.is_empty() {
         return Ok(PredictionContext {
             source_session_id: session_id.to_string(),
@@ -1338,7 +1341,12 @@ pub async fn predict_next_actions(
         .collect();
 
     for (nb_sid, sim_score, source, nb_project) in &neighbor_meta {
-        let Ok(nb) = crate::parser::parse_session(StdPath::new(source)) else { continue };
+        // SECURITY (KF-01): neighbour `source` paths come from Qdrant
+        // payload — validate each one. Reject silently (skip the
+        // neighbour) so an attacker-tampered point doesn't kill the whole
+        // prediction; legitimate neighbours still produce results.
+        let Ok(validated) = crate::sec::validate_session_path(StdPath::new(source)) else { continue };
+        let Ok(nb) = crate::parser::parse_session(&validated) else { continue };
         if nb.turns.is_empty() {
             continue;
         }

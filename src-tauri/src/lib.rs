@@ -3,6 +3,7 @@ pub mod commands;
 pub mod indexer;
 pub mod mcp;
 pub mod parser;
+pub mod sec;
 pub mod watcher;
 
 use std::path::PathBuf;

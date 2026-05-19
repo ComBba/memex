@@ -192,8 +192,13 @@ pub async fn get_session_turns(
             _ => None,
         })
         .ok_or_else(|| "session payload missing source_path".to_string())?;
-    let session = parser::parse_session(std::path::Path::new(&source))
+    // SECURITY (KF-01): `source` is read from a Qdrant payload — treat it
+    // as untrusted input. `validate_session_path` canonicalizes and
+    // confirms the result lives under the sandbox root, defeating
+    // tampered-payload arbitrary-file-read attacks.
+    let validated = crate::sec::validate_session_path(std::path::Path::new(&source))
         .map_err(stringify)?;
+    let session = parser::parse_session(&validated).map_err(stringify)?;
     serde_json::to_value(&session).map_err(stringify)
 }
 
@@ -469,6 +474,16 @@ pub async fn list_sessions(
     path: Option<PathBuf>,
     limit: Option<usize>,
 ) -> Result<Vec<SessionSummary>, String> {
+    // SECURITY (KF-01): if the caller supplied a `path` override, ensure
+    // it lives under the sandbox root before we walk it. With
+    // `withGlobalTauri = true` and `csp: null`, this command is reachable
+    // from any JS context — gate the optional override at the boundary to
+    // prevent directory traversal.
+    let path = if let Some(p) = path {
+        Some(crate::sec::validate_session_path(&p).map_err(stringify)?)
+    } else {
+        None
+    };
     // ~2 000 jsonl walks worth of file IO + JSON parsing — move it off
     // the tokio worker so other IPC requests (prompt_history_stats,
     // recall, …) aren't parked while we boot the dashboard.
@@ -533,7 +548,14 @@ pub async fn tail_recent_errors(
     use chrono::Utc;
     use walkdir::WalkDir;
 
-    let root = path.unwrap_or_else(default_projects_root);
+    // SECURITY (KF-01): if the caller supplied a `path` override, ensure
+    // it lives under the sandbox root before we walk it. WalkDir will not
+    // escape this root, so validating the root once is sufficient.
+    let root = if let Some(p) = path {
+        crate::sec::validate_session_path(&p).map_err(stringify)?
+    } else {
+        default_projects_root()
+    };
     let cutoff = SystemTime::now() - std::time::Duration::from_secs(since_seconds.unwrap_or(60));
     let now_iso = Utc::now().to_rfc3339();
     let mut out: Vec<RecentError> = Vec::new();
