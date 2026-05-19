@@ -29,6 +29,63 @@ ComBba/memex fork의 **모든 변경 사항**을 upstream에 반영하는 단일
 | `540281a` | **P7 Demo** | video script + ffmpeg helper + IMPLEMENTATION_REPORT |
 | `70121fb`, `b4b205a`, `113665f` | **P8 E2E** | empirical validation across 7 surfaces + memex:// deep-links + private artifact redaction |
 
+### 🆕 신규 기능 inventory — fork에서 새로 만든 것들
+
+Commit 표는 phase 단위지만, **실제 코드 산출물**을 모듈/UI 단위로 정리하면:
+
+#### Rust 백엔드 신규 모듈 (총 6,687 LOC)
+
+| 모듈 | LOC | 기능 본체 |
+|---|---:|---|
+| `src-tauri/src/lens.rs` | **1,336** | **Query Engine** — FormulaQuery + MMR + weighted RRF + BM25 sparse + 6 named vectors fusion (content/tool/path/error/code/content_late) |
+| `src-tauri/src/enrich.rs` | **871** | **Session Enrichment** — `intent`/`outcome`/`arc`/`topic`/`tool_counts` 추출 → payload enrich |
+| `src-tauri/src/schema.rs` | **854** | **Collection v3 Schema** — `memex_sessions_v3` + TurboQuant bits2 + dual-write + auto-migration + version tracking |
+| `src-tauri/src/retrieval.rs` | **798** | **Advanced Retrieval** — late-interaction reranker + ACORN + Discovery pairs + group-by + RelevanceFeedback + order-by |
+| `src-tauri/src/codex_parser.rs` | **777** | **Codex CLI Parser** — `~/.codex/sessions/.../rollout-*.jsonl` (envelope schema) |
+| `src-tauri/src/crud.rs` | **564** | **Collection CRUD** — ensure / migrate / upsert / batch / version check |
+| `src-tauri/src/snapshot.rs` | **506** | **Snapshot Sandbox + Signed Envelope** (P1 KF-02/03) — SHA-256 envelope + export/import sandbox |
+| `src-tauri/src/insights_cache.rs` | **311** | **Insights Cache** (P5 KG-01/02) — TTL + invalidation |
+| `src-tauri/src/sec.rs` | **284** | **Path Sandbox** (P1 KF-01) — IPC 경로 검증 + symlink-escape 방어 |
+| `src-tauri/src/payload.rs` | **212** | **Payload Helpers** — extract / recursive payload_to_json / encode |
+| `src-tauri/src/parse_cache.rs` | **174** | **Parse Cache** (P5) — mtime-keyed |
+
+**+ commands.rs / indexer.rs / cli.rs / main.rs에 Tauri command 30+ 추가** (각 모듈의 IPC 노출 + CLI 진입점)
+
+#### 프론트엔드 WOW UI surfaces (`src/main.js` 신규 +3,479 / `src/styles.css` +2,588)
+
+| Surface | 핵심 기능 |
+|---|---|
+| **WOW-1 Time Machine Heat Trail** | 카드 hover → 가장 비슷한 5 neighbor와의 trail을 SVG bezier로 그림. 색=유사도 bucket (보라/청록/노랑). + heat-chip enrich field overlay |
+| **WOW-2 Topology Agent Filter + Gap Overlay** | 세션 graph에서 agent별 필터 + isolated cluster 시각 표시 |
+| **WOW-3 Fusion Pills + Lens Sliders** | 6 lens 슬라이더 weight + Formula/RRF 토글 + score breakdown contribution bars |
+| **WOW-4 Predict Cinematic Grid** | 4×3 prediction thumbnails + view-transition cinematic zoom → Replay modal |
+| **WOW-5 Discovery Hyperplane** | Mix & Match modal 안 self-contained picker + canvas hyperplane 시각화 |
+| **+ deep-link router** | `memex://search?q=`, `memex://predict?session_id=` 등 7 surface 진입 deep links |
+
+#### Integration test suites (총 2,320 LOC across 7 files)
+
+| 파일 | LOC | 검증 대상 |
+|---|---:|---|
+| `tests/schema_integration.rs` | 698 | v2→v3 마이그레이션 + dual-write + version tracking |
+| `tests/retrieval_integration.rs` | 585 | late-interaction + ACORN + Discovery + group-by |
+| `tests/lens_integration.rs` | 564 | FormulaQuery + MMR + RRF + 6-lens fusion |
+| `tests/parser.rs` | 254 | Claude transcript parser (확장) |
+| `tests/codex_parser_integration.rs` | 159 | Codex envelope parser |
+| `tests/sec_integration.rs` | 30 | path sandbox |
+| `tests/snapshot_integration.rs` | 30 | signed snapshot |
+
+**+ Test fixtures** (`tests/fixtures/schema/{v2,v3,migration-expected}.json` + `tests/fixtures_codex/rollout-*.jsonl` 5종)
+
+#### CLI subcommands 신규
+
+`memex search | lens | mix | topology | recall | predict | scan` — 7 surface 전부 CLI에서도 호출 가능 (Tauri app 없이도 stdout)
+
+#### E2E + Demo 산출물
+
+`scripts/demo/{smoke-test,capture-screenshots,record-demo}.sh` + `tests/e2e/` artifacts (gitignored, regen helper 포함) + phase별 `claudedocs/phases/...` implementation reports
+
+---
+
 ### Review feedback iterations
 
 | Commit | Description |
