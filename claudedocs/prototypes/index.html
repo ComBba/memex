@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Memex · v3.2 Visual WOW Prototypes</title>
+<style>
+  :root {
+    --bg: #0a0e1a; --bg-elev: #131826; --border: #1f2940;
+    --fg: #e8eaf1; --fg-muted: #8b95b3; --fg-dim: #5d678a;
+    --accent: #dc382d; --accent-2: #bf5af2; --accent-3: #30d158;
+    --accent-4: #ffd60a; --accent-5: #64d2ff; --accent-6: #ff6482;
+    --mono: "JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    --sans: -apple-system,BlinkMacSystemFont,"Inter","SF Pro Text",sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; padding: 48px 32px;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, rgba(100,210,255,.10), transparent 60%),
+      radial-gradient(1000px 500px at 100% 20%, rgba(220,56,45,.10), transparent 50%),
+      var(--bg);
+    color: var(--fg); font-family: var(--sans); line-height: 1.6;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 {
+    font-size: 36px; margin: 0 0 8px; letter-spacing: -.02em; font-weight: 800;
+    background: linear-gradient(135deg, #dc382d 0%, #64d2ff 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--fg-muted); font-size: 16px; max-width: 720px; margin: 0 0 8px; }
+  .meta { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 36px; }
+  .pill {
+    padding: 4px 10px; border-radius: 999px; font-family: var(--mono); font-size: 11.5px;
+    background: var(--bg-elev); border: 1px solid var(--border); color: var(--fg-muted);
+  }
+  .pill.blue { color: var(--accent-5); border-color: rgba(100,210,255,.4); }
+  .pill.green { color: var(--accent-3); border-color: rgba(48,209,88,.4); }
+  .pill.red { color: var(--accent); border-color: rgba(220,56,45,.4); }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  a.card {
+    display: block; text-decoration: none; color: inherit;
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 26px; transition: all .2s;
+    position: relative; overflow: hidden;
+  }
+  a.card::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: var(--accent-5);
+  }
+  a.card:hover {
+    transform: translateY(-3px); border-color: rgba(100,210,255,.4);
+    box-shadow: 0 16px 40px rgba(0,0,0,.4), 0 0 0 1px rgba(100,210,255,.2);
+  }
+  a.card h3 { margin: 0 0 6px; font-size: 18px; color: #fff; font-weight: 600; }
+  a.card .num { font-family: var(--mono); font-size: 11px; color: var(--accent-5); letter-spacing: .08em; }
+  a.card .desc { font-size: 13.5px; color: var(--fg-muted); margin: 6px 0 12px; }
+  a.card .tech { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); }
+  .note {
+    margin: 40px 0 0; padding: 18px 22px; border-radius: 12px;
+    background: rgba(48,209,88,.05); border: 1px solid rgba(48,209,88,.3);
+    font-size: 13.5px; color: var(--fg);
+  }
+  .note b { color: var(--accent-3); }
+  .footer { margin-top: 40px; font-family: var(--mono); font-size: 11.5px; color: var(--fg-dim); }
+  a { color: var(--accent-5); text-decoration: none; border-bottom: 1px solid rgba(100,210,255,.3); }
+  code { font-family: var(--mono); font-size: 13px; background: var(--bg-elev); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Memex · v3.2 Visual WOW Prototypes</h1>
+  <p class="sub">5개 visual WOW를 standalone clickable HTML로 — 외부 Qdrant 연결 없이 fake data로 동작. 브랜치 <code>feature/sota-v3.2-plan-and-mockups</code>에서 main과 비교 가능. <a href="../sota-plan-v3.html">전체 plan v3.2 →</a></p>
+
+  <div class="meta">
+    <span class="pill blue">v3.2 no-LLM final</span>
+    <span class="pill green">5/5 prototypes</span>
+    <span class="pill red">fake data · no Qdrant required</span>
+  </div>
+
+  <div class="grid">
+    <a class="card" href="wow-1-time-machine-heat-trail.html">
+      <div class="num">WOW-1</div>
+      <h3>Time Machine · Heat Trail</h3>
+      <p class="desc">CSS 3D translateZ 카드 stack. 카드 hover 시 5개 가장 가까운 카드까지 SVG bezier trail.</p>
+      <div class="tech">CSS3 transform-style: preserve-3d · SVG overlay · ↑↓ keys</div>
+    </a>
+
+    <a class="card" href="wow-2-topology-galaxy.html">
+      <div class="num">WOW-2</div>
+      <h3>Topology Galaxy · Gateway Nodes</h3>
+      <p class="desc">3D force-directed graph. Cross-project bridge 발광. Gap insight floating bubble.</p>
+      <div class="tech">three.js + force-graph · vendored · 60fps target</div>
+    </a>
+
+    <a class="card" href="wow-3-lens-contribution-bars.html">
+      <div class="num">WOW-3</div>
+      <h3>Lens · FormulaQuery Contribution Bars</h3>
+      <p class="desc">검색 결과 카드에 6 named vector 기여도가 stacked bar로 실시간. recency × has_errors boost chip.</p>
+      <div class="tech">vanilla HTML/CSS · flex-basis transition · KA-01 시각화</div>
+    </a>
+
+    <a class="card" href="wow-4-predict-cinematic.html">
+      <div class="num">WOW-4</div>
+      <h3>Predict · Cinematic Panel</h3>
+      <p class="desc">Neighbor 8 세션의 pivot turn을 4×3 thumbnail. 클릭 시 view-transition으로 Replay 전환.</p>
+      <div class="tech">View Transition API · grid layout · fallback fade</div>
+    </a>
+
+    <a class="card" href="wow-5-discovery-splash.html">
+      <div class="num">WOW-5</div>
+      <h3>Discovery · 3D Hyperplane Splash</h3>
+      <p class="desc">positive/negative anchor를 drag → hyperplane 등장 → 결과 카드 positive 쪽에서 emit.</p>
+      <div class="tech">three.js plane geometry · raycast drag · context pairs (KB-03)</div>
+    </a>
+  </div>
+
+  <div class="note">
+    <b>이 prototypes의 목적</b> · 각 HTML 파일은 *visual 검증용*이지 production 코드가 아닙니다. 진짜 Qdrant 호출은 fake data로 대체. 모션 timing · 60fps 가능성 · interaction model을 demo recording 전에 확인하는 용도. <code>BRANCH_VS_MAIN.md</code>에서 main 대비 무엇이 추가됐는지 확인.
+  </div>
+
+  <p class="footer">v3.2 branch · feature/sota-v3.2-plan-and-mockups · 2026-05-18 · LLM 0 · Ollama 0 · 외부 의존 0 (CDN three.js 옵션)</p>
+</div>
+</body>
+</html>

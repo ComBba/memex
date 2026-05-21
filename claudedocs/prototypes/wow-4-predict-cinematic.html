@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>WOW-4 · Predict Cinematic Panel (prototype)</title>
+<style>
+  :root {
+    --bg: #0a0e1a; --bg-elev: #131826; --border: #1f2940;
+    --fg: #e8eaf1; --fg-muted: #8b95b3;
+    --accent: #dc382d; --accent-2: #bf5af2; --accent-3: #30d158;
+    --accent-4: #ffd60a; --accent-5: #64d2ff;
+    --mono: "JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, rgba(191,90,242,.08), transparent 60%),
+      var(--bg);
+    color: var(--fg); font-family: -apple-system, "Inter", sans-serif;
+  }
+  .topbar {
+    position: sticky; top: 0; height: 48px; padding: 0 20px;
+    display: flex; align-items: center; gap: 16px;
+    background: rgba(10,14,26,.85); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); z-index: 10;
+  }
+  .topbar .brand { font-weight: 700; }
+  .topbar .brand span { color: var(--accent); }
+  .topbar .num { font-family: var(--mono); font-size: 11px; color: var(--accent-5); }
+  .topbar .hint { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--fg-muted); }
+  .topbar a { color: var(--fg-muted); text-decoration: none; font-family: var(--mono); font-size: 11px; }
+
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  .source-card {
+    background: var(--bg-elev); border: 1px solid rgba(191,90,242,.4); border-radius: 14px;
+    padding: 16px 20px; margin-bottom: 28px;
+    box-shadow: 0 0 0 1px rgba(191,90,242,.15);
+  }
+  .source-card .label { font-family: var(--mono); font-size: 11px; color: var(--accent-2); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+  .source-card .title { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+  .source-card .meta { font-family: var(--mono); font-size: 12px; color: var(--fg-muted); }
+
+  .panel-header {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-bottom: 16px;
+  }
+  .panel-header h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+  .panel-header .stat { font-family: var(--mono); font-size: 12px; color: var(--fg-muted); }
+  .panel-header .stat b { color: #fff; }
+
+  .grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+  }
+  @media (max-width: 880px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+
+  .pred {
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px;
+    cursor: pointer; transition: all .2s;
+    view-transition-name: var(--vt-name);
+  }
+  .pred:hover {
+    border-color: rgba(100,210,255,.4);
+    transform: translateY(-3px);
+    box-shadow: 0 14px 30px rgba(0,0,0,.4), 0 0 0 1px rgba(100,210,255,.2);
+  }
+  .pred .rank-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+  .pred .rank { font-family: var(--mono); font-size: 11px; color: var(--accent); font-weight: 700; }
+  .pred .pct { font-family: var(--mono); font-size: 11px; color: var(--accent-3); margin-left: auto; }
+  .pred .tool {
+    font-family: var(--mono); font-size: 13.5px; font-weight: 600; color: #fff;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .pred .tool .icon { color: var(--accent-5); }
+  .pred .arg {
+    font-family: var(--mono); font-size: 12px; color: var(--fg-muted);
+    margin: 4px 0 8px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pred .from {
+    font-family: var(--mono); font-size: 11px; color: var(--fg-muted);
+    border-top: 1px solid var(--border); padding-top: 8px; margin-top: 6px;
+  }
+  .pred .from .session { color: var(--accent-2); }
+  .pred .from .outcome { color: var(--accent-3); }
+
+  /* Replay overlay */
+  .replay-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(10,14,26,.95); backdrop-filter: blur(20px);
+    display: none; align-items: center; justify-content: center;
+    padding: 40px;
+    view-transition-name: replay-overlay;
+  }
+  .replay-overlay.active { display: flex; }
+  .replay-box {
+    width: 100%; max-width: 800px;
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 16px;
+    padding: 28px 32px;
+  }
+  .replay-box h3 { margin: 0 0 4px; font-size: 18px; }
+  .replay-box .session-id { font-family: var(--mono); font-size: 13px; color: var(--accent-2); margin-bottom: 16px; }
+  .replay-box .turn {
+    background: rgba(0,0,0,.3); border-left: 3px solid var(--accent-5);
+    padding: 10px 14px; border-radius: 0 8px 8px 0;
+    margin: 8px 0; font-family: var(--mono); font-size: 12.5px; color: var(--fg);
+  }
+  .replay-box .turn.bash { border-left-color: var(--accent-3); }
+  .replay-box .turn.edit { border-left-color: var(--accent-4); }
+  .replay-box .turn .role { color: var(--fg-muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .replay-box .close {
+    background: transparent; border: 1px solid var(--border); color: var(--fg-muted);
+    padding: 6px 14px; border-radius: 6px; cursor: pointer;
+    font-family: var(--mono); font-size: 12px; margin-top: 14px;
+  }
+  .replay-box .close:hover { color: var(--fg); border-color: var(--accent-5); }
+
+  .info {
+    margin: 28px 0 0; padding: 14px 18px;
+    background: rgba(48,209,88,.05); border: 1px solid rgba(48,209,88,.3);
+    border-radius: 12px; font-size: 13px;
+  }
+  .info b { color: var(--accent-3); }
+
+  ::view-transition-old(replay-overlay), ::view-transition-new(replay-overlay) {
+    animation-duration: .28s;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">memex</span>
+  <span class="num">WOW-4 · Predict · Cinematic panel (KG-02 LRU + view-transition)</span>
+  <span class="hint">click a thumbnail · cinematic zoom to Replay</span>
+  <a href="index.html">← all prototypes</a>
+</div>
+
+<div class="wrap">
+
+  <div class="source-card">
+    <div class="label">source · current session</div>
+    <div class="title">"Tauri build investigation — bundle icons fail"</div>
+    <div class="meta">#80 · memex/main · today · 1h 22m elapsed · last 3 turns embedded as query vector</div>
+  </div>
+
+  <div class="panel-header">
+    <h2>🔮 What past-you did next</h2>
+    <span class="stat"><b>6 of 8</b> neighbors matched · horizon <b>3 turns</b> · aggregated tool calls</span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="info">
+    <b>What you're seeing</b> · LRU-cached pivot lookup (KG-02): neighbor 8 sessions are re-parsed only on first access, cached by mtime. Click a thumbnail → View Transition API smoothly zooms into the source session's Replay at the exact pivot turn. KB-01 late-interaction MaxSim ensures the neighbor selection picks sessions where the *intent* matches, not just keyword overlap.
+  </div>
+
+</div>
+
+<div class="replay-overlay" id="replay">
+  <div class="replay-box">
+    <h3 id="r-title">—</h3>
+    <div class="session-id" id="r-id">—</div>
+    <div id="r-turns"></div>
+    <button class="close" onclick="closeReplay()">close · ESC</button>
+  </div>
+</div>
+
+<script>
+// fake predictions
+const predictions = [
+  {
+    rank: 1, pct: 67, tool: 'Bash', icon: '🖥', arg: 'cargo build --release',
+    sessionId: 78, project: 'memex/main', when: '2026-05-15', outcome: 'resolved · symlink fix',
+    turns: [
+      { role: 'assistant', kind: 'bash', text: '$ cargo build --release\n   Compiling memex v0.1.0\n   Compiling tauri-build v2.0.4\n   Finished `release` profile [optimized] in 4m 12s' },
+      { role: 'assistant', kind: 'edit', text: 'Edit src-tauri/tauri.conf.json:\n+ "icon": ["icons/icon.icns"]\n- "icon": ["icons/32x32.png"]' },
+      { role: 'assistant', kind: 'bash', text: '$ npm run tauri build\n   Compiling Memex bundle...\n   ✓ Bundled .app at src-tauri/target/release/bundle/macos/Memex.app' },
+    ],
+  },
+  {
+    rank: 2, pct: 33, tool: 'Edit', icon: '✏️', arg: 'src-tauri/Cargo.toml',
+    sessionId: 72, project: 'memex/main', when: '2026-05-12', outcome: 'resolved · dep bump',
+    turns: [
+      { role: 'assistant', kind: 'edit', text: 'Edit src-tauri/Cargo.toml:\n- tauri = "1.5"\n+ tauri = { version = "2", features = ["tray-icon"] }' },
+      { role: 'assistant', kind: 'bash', text: '$ cargo update\n$ cargo build' },
+    ],
+  },
+  {
+    rank: 3, pct: 21, tool: 'Bash', icon: '🖥', arg: 'pnpm install && pnpm tauri build',
+    sessionId: 71, project: 'memex/main', when: '2026-05-10', outcome: 'resolved · 60fps verified',
+    turns: [
+      { role: 'assistant', kind: 'bash', text: '$ pnpm install\nadded 12 packages, ok\n$ pnpm tauri build\n   Bundling .app...' },
+    ],
+  },
+  {
+    rank: 4, pct: 18, tool: 'Read', icon: '📖', arg: 'README.md',
+    sessionId: 70, project: 'memex/main', when: '2026-05-08', outcome: 'partial',
+    turns: [
+      { role: 'assistant', kind: 'edit', text: 'Read README.md (lines 200-450)' },
+    ],
+  },
+  {
+    rank: 5, pct: 12, tool: 'Bash', icon: '🖥', arg: 'open src-tauri/target/release/bundle/...',
+    sessionId: 69, project: 'memex/main', when: '2026-05-05', outcome: 'resolved✓',
+    turns: [
+      { role: 'assistant', kind: 'bash', text: '$ open src-tauri/target/release/bundle/macos/Memex.app\n   ✓ launched' },
+    ],
+  },
+  {
+    rank: 6, pct: 9, tool: 'Edit', icon: '✏️', arg: 'src/main.js',
+    sessionId: 68, project: 'memex/main', when: '2026-05-01', outcome: 'resolved · UI fix',
+    turns: [
+      { role: 'assistant', kind: 'edit', text: 'Edit src/main.js (lines 800-820)' },
+    ],
+  },
+  {
+    rank: 7, pct: 6, tool: 'Bash', icon: '🖥', arg: 'codesign --deep --force ...',
+    sessionId: 67, project: 'project-yc/safe', when: '2026-04-28', outcome: 'unresolved',
+    turns: [
+      { role: 'assistant', kind: 'bash', text: '$ codesign --deep --force --sign "Developer ID" Memex.app\n   ✗ errSecInternalComponent' },
+    ],
+  },
+  {
+    rank: 8, pct: 4, tool: 'Read', icon: '📖', arg: 'src-tauri/src/lib.rs',
+    sessionId: 66, project: 'memex/main', when: '2026-04-25', outcome: 'partial',
+    turns: [
+      { role: 'assistant', kind: 'edit', text: 'Read src-tauri/src/lib.rs (lines 1-80)' },
+    ],
+  },
+];
+
+const grid = document.getElementById('grid');
+predictions.forEach((p, i) => {
+  const el = document.createElement('div');
+  el.className = 'pred';
+  el.style.setProperty('--vt-name', 'pred-' + i);
+  el.innerHTML = `
+    <div class="rank-row">
+      <span class="rank">#${p.rank}</span>
+      <span class="pct">▶ ${p.pct}%</span>
+    </div>
+    <div class="tool"><span class="icon">${p.icon}</span>${p.tool}</div>
+    <div class="arg">${p.arg}</div>
+    <div class="from">
+      <span class="session">${p.project}</span> · ${p.when}<br/>
+      → <span class="outcome">${p.outcome}</span>
+    </div>
+  `;
+  el.addEventListener('click', () => openReplay(p));
+  grid.appendChild(el);
+});
+
+function openReplay(p) {
+  const open = () => {
+    document.getElementById('r-title').textContent = `Replay · pivot turn · "${p.tool} ${p.arg.slice(0,40)}..."`;
+    document.getElementById('r-id').textContent = `Session #${p.sessionId} · ${p.project} · ${p.when} · outcome: ${p.outcome}`;
+    document.getElementById('r-turns').innerHTML = p.turns.map(t => `
+      <div class="turn ${t.kind}">
+        <div class="role">${t.role} · ${t.kind}</div>
+        <pre style="margin:0;font-family:inherit;white-space:pre-wrap">${t.text}</pre>
+      </div>
+    `).join('');
+    document.getElementById('replay').classList.add('active');
+  };
+  if (document.startViewTransition) {
+    document.startViewTransition(() => open());
+  } else {
+    open();
+  }
+}
+function closeReplay() {
+  const close = () => document.getElementById('replay').classList.remove('active');
+  if (document.startViewTransition) document.startViewTransition(() => close()); else close();
+}
+window.addEventListener('keydown', e => { if (e.key === 'Escape') closeReplay(); });
+</script>
+
+</body>
+</html>

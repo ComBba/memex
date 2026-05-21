@@ -1,0 +1,1167 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Memex × Qdrant 1.18 Pinnacle — Plan v3</title>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg-elev: #131826;
+    --bg-elev-2: #1a2238;
+    --border: #1f2940;
+    --border-strong: #2a3658;
+    --fg: #e8eaf1;
+    --fg-muted: #8b95b3;
+    --fg-dim: #5d678a;
+    --accent: #dc382d;       /* Qdrant red */
+    --accent-2: #bf5af2;     /* purple */
+    --accent-3: #30d158;     /* green */
+    --accent-4: #ffd60a;     /* yellow */
+    --accent-5: #64d2ff;     /* cyan — v3 hero */
+    --accent-6: #ff6482;     /* pink */
+    --gradient-hero: linear-gradient(135deg, #dc382d 0%, #64d2ff 100%);
+    --shadow-card: 0 8px 32px rgba(0,0,0,.4), 0 0 0 1px var(--border);
+    --mono: "JetBrains Mono","SF Mono","Fira Code",Menlo,Consolas,monospace;
+    --sans: -apple-system,BlinkMacSystemFont,"Inter","SF Pro Text","Pretendard",sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, rgba(100,210,255,.10), transparent 60%),
+      radial-gradient(1000px 500px at 100% 20%, rgba(220,56,45,.12), transparent 50%),
+      radial-gradient(900px 400px at 50% 100%, rgba(191,90,242,.06), transparent 60%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 15.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: rgba(100,210,255,.35); color: #fff; }
+
+  .shell { display: grid; grid-template-columns: 270px 1fr; max-width: 1500px; margin: 0 auto; }
+  @media (max-width: 960px) { .shell { grid-template-columns: 1fr; } .toc { display: none; } }
+
+  .toc {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 28px 18px; border-right: 1px solid var(--border); font-size: 13.5px;
+  }
+  .toc .brand { font-weight: 700; letter-spacing: -.02em; margin-bottom: 6px; }
+  .toc .brand span { color: var(--accent); }
+  .toc .ver { font-family: var(--mono); font-size: 11px; color: var(--accent-5); margin-bottom: 18px; }
+  .toc ol { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+  .toc li { counter-increment: toc; margin: 6px 0; }
+  .toc a { color: var(--fg-muted); text-decoration: none; display: block; padding: 4px 10px; border-radius: 6px; transition: all .15s; border-left: 2px solid transparent; }
+  .toc a:hover { color: var(--fg); background: var(--bg-elev); border-left-color: var(--accent-5); }
+  .toc a::before { content: "§" counter(toc) ". "; color: var(--fg-dim); }
+  .toc .toc-sub { padding-left: 16px; font-size: 12.5px; margin: 3px 0; }
+  .toc .toc-sub a::before { content: "·  "; }
+
+  .main { padding: 36px 56px 120px; max-width: 1200px; }
+  @media (max-width: 720px) { .main { padding: 24px 18px 80px; } }
+
+  .hero {
+    margin: 8px 0 56px; padding: 44px 40px 40px; border-radius: 18px;
+    background: linear-gradient(180deg, rgba(100,210,255,.08), rgba(220,56,45,.06) 50%, transparent);
+    border: 1px solid var(--border-strong); position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,.35), transparent),
+      radial-gradient(1px 1px at 70% 60%, rgba(100,210,255,.4), transparent),
+      radial-gradient(1.5px 1.5px at 40% 80%, rgba(220,56,45,.3), transparent),
+      radial-gradient(1px 1px at 85% 25%, rgba(191,90,242,.3), transparent);
+    background-size: 320px 320px; opacity: .6; pointer-events: none;
+  }
+  .hero h1 {
+    margin: 0 0 12px; font-size: 44px; letter-spacing: -.025em; font-weight: 800; line-height: 1.1;
+    background: var(--gradient-hero);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero .ver-tag {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    background: rgba(100,210,255,.15); color: var(--accent-5);
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    margin-bottom: 10px; letter-spacing: .04em;
+  }
+  .hero .sub { color: var(--fg-muted); font-size: 17px; max-width: 800px; }
+  .hero .invariant {
+    margin-top: 22px; padding: 16px 20px; border-radius: 12px;
+    background: linear-gradient(90deg, rgba(220,56,45,.12), rgba(100,210,255,.08));
+    border: 1px solid rgba(220,56,45,.4);
+    font-size: 15px; color: var(--fg);
+  }
+  .hero .invariant b { color: var(--accent); }
+  .hero .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    font-size: 12px; color: var(--fg-muted); font-family: var(--mono);
+  }
+  .pill.red { color: var(--accent); border-color: rgba(220,56,45,.4); }
+  .pill.green { color: var(--accent-3); border-color: rgba(48,209,88,.4); }
+  .pill.purple { color: var(--accent-2); border-color: rgba(191,90,242,.4); }
+  .pill.yellow { color: var(--accent-4); border-color: rgba(255,214,10,.4); }
+  .pill.blue { color: var(--accent-5); border-color: rgba(100,210,255,.4); }
+
+  section { margin: 56px 0; scroll-margin-top: 24px; }
+  h2 { font-size: 28px; letter-spacing: -.02em; margin: 0 0 6px; display: flex; align-items: baseline; gap: 14px; }
+  h2 .num { font-family: var(--mono); font-size: 16px; color: var(--accent-5); font-weight: 500; letter-spacing: 0; }
+  h3 { font-size: 19px; margin: 32px 0 10px; letter-spacing: -.01em; }
+  h4 { font-size: 15px; margin: 20px 0 6px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  p { margin: 10px 0; }
+  .lede { color: var(--fg-muted); margin: 0 0 28px; max-width: 800px; }
+  strong { color: #fff; }
+  em { color: var(--fg-muted); }
+  a { color: var(--accent-5); text-decoration: none; border-bottom: 1px solid rgba(100,210,255,.3); }
+  a:hover { color: #fff; border-color: var(--accent-5); }
+
+  code, kbd { font-family: var(--mono); font-size: 13px; background: var(--bg-elev); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); }
+  pre {
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-5);
+    border-radius: 10px; padding: 16px 18px; overflow-x: auto;
+    font-family: var(--mono); font-size: 13px; line-height: 1.55; margin: 14px 0;
+  }
+  pre code { background: transparent; border: 0; padding: 0; }
+  blockquote { margin: 14px 0; padding: 12px 18px; border-left: 3px solid var(--accent-2); background: rgba(191,90,242,.06); border-radius: 0 8px 8px 0; color: var(--fg); }
+  blockquote .src { display: block; margin-top: 6px; font-size: 12px; color: var(--fg-muted); font-family: var(--mono); }
+
+  .grid { display: grid; gap: 14px; }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 880px) { .grid-2, .grid-3 { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  .card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px; padding: 18px 18px 16px; }
+
+  /* category divider */
+  .cat-header {
+    margin: 36px 0 14px;
+    padding: 14px 18px;
+    border-radius: 12px;
+    background: linear-gradient(90deg, var(--bg-elev), transparent);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent-5);
+    display: flex; align-items: center; gap: 14px;
+  }
+  .cat-header.A { border-left-color: var(--accent); }
+  .cat-header.B { border-left-color: var(--accent-2); }
+  .cat-header.C { border-left-color: var(--accent-3); }
+  .cat-header.D { border-left-color: var(--accent-4); }
+  .cat-header.E { border-left-color: var(--accent-6); }
+  .cat-header.F { border-left-color: var(--accent-5); }
+  .cat-header.G { border-left-color: var(--fg-muted); }
+  .cat-header .cat-tag { font-family: var(--mono); font-size: 12px; padding: 3px 10px; border-radius: 6px; background: var(--bg-elev-2); }
+  .cat-header h3 { margin: 0; font-size: 18px; }
+  .cat-header .cat-sub { font-size: 12.5px; color: var(--fg-muted); font-family: var(--mono); }
+
+  /* KICK card */
+  .kick {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 22px 18px;
+    margin: 12px 0;
+    position: relative;
+  }
+  .kick::before {
+    content: attr(data-num);
+    position: absolute; top: -10px; left: 18px;
+    background: var(--bg); padding: 0 8px; color: var(--accent-5);
+    font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .05em;
+  }
+  .kick h4 { margin: 0 0 6px; color: #fff; font-size: 16px; text-transform: none; letter-spacing: 0; font-weight: 600; }
+  .kick .impact-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .kick .impact { font-family: var(--mono); font-size: 11.5px; color: var(--fg-muted); }
+  .kick .impact b { color: #fff; font-weight: 600; }
+
+  .qfit {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px; border-radius: 4px;
+    font-family: var(--mono); font-size: 11px;
+    background: rgba(220,56,45,.12); color: var(--accent);
+    border: 1px solid rgba(220,56,45,.3);
+  }
+  .demofit {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px; border-radius: 4px;
+    font-family: var(--mono); font-size: 11px;
+    background: rgba(100,210,255,.12); color: var(--accent-5);
+    border: 1px solid rgba(100,210,255,.3);
+  }
+
+  .ship-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-family: var(--mono); font-size: 10.5px; font-weight: 600; margin-left: 6px; }
+  .ship-tag.ship { background: rgba(48,209,88,.15); color: var(--accent-3); border: 1px solid rgba(48,209,88,.3); }
+  .ship-tag.cond { background: rgba(255,214,10,.15); color: var(--accent-4); border: 1px solid rgba(255,214,10,.3); }
+  .ship-tag.toggle { background: rgba(255,100,130,.15); color: var(--accent-6); border: 1px solid rgba(255,100,130,.3); }
+  .ship-tag.skip { background: rgba(139,149,179,.15); color: var(--fg-muted); border: 1px solid rgba(139,149,179,.3); }
+
+  .timeline { display: grid; grid-template-columns: 80px 1fr 1fr 110px; gap: 0; margin-top: 14px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .timeline > div { padding: 10px 14px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); font-size: 13px; }
+  .timeline > div:nth-child(4n) { border-right: 0; }
+  .timeline .h { background: var(--bg-elev-2); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-muted); }
+  .timeline .day { font-family: var(--mono); color: var(--accent-5); font-weight: 600; }
+  .timeline .gate { font-family: var(--mono); font-size: 11.5px; }
+  .timeline .gate.go { color: var(--accent-3); }
+  .timeline .gate.amber { color: var(--accent-4); }
+  .timeline .gate.freeze { color: var(--accent-5); }
+  @media (max-width: 720px) {
+    .timeline { grid-template-columns: 60px 1fr; }
+    .timeline .h:nth-child(3), .timeline .h:nth-child(4),
+    .timeline > div:nth-child(4n-1), .timeline > div:nth-child(4n) { display: none; }
+  }
+
+  table.risk { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 14px 0; }
+  table.risk th, table.risk td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.risk th { color: var(--fg-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; background: var(--bg-elev); }
+  table.risk td.sev { font-family: var(--mono); font-weight: 600; }
+  table.risk td.sev.high { color: var(--accent); }
+  table.risk td.sev.med { color: var(--accent-4); }
+  table.risk td.sev.low { color: var(--accent-3); }
+
+  .mockup {
+    background: #060912; border: 1px solid var(--border-strong); border-radius: 12px;
+    padding: 16px 18px; margin: 12px 0;
+    font-family: var(--mono); font-size: 12px; line-height: 1.45;
+    color: var(--fg-muted); white-space: pre; overflow-x: auto; position: relative;
+  }
+  .mockup::before { content: "·  ·  ·"; position: absolute; top: 8px; left: 12px; letter-spacing: .25em; color: var(--fg-dim); }
+  .mockup-body { padding-top: 18px; }
+  .mockup .accent { color: var(--accent); }
+  .mockup .accent-2 { color: var(--accent-2); }
+  .mockup .accent-3 { color: var(--accent-3); }
+  .mockup .accent-4 { color: var(--accent-4); }
+  .mockup .accent-5 { color: var(--accent-5); }
+  .mockup .accent-6 { color: var(--accent-6); }
+  .mockup .dim { color: var(--fg-dim); }
+  .mockup .fg { color: var(--fg); }
+
+  .arch-wrap { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px; padding: 18px; overflow-x: auto; }
+
+  .sources { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 13px; }
+  @media (max-width: 720px) { .sources { grid-template-columns: 1fr; } }
+  .sources .src-card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .sources .src-card .label { font-family: var(--mono); font-size: 11px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .04em; }
+  .sources .src-card a { font-size: 13px; border: 0; }
+
+  hr { border: 0; border-top: 1px solid var(--border); margin: 32px 0; }
+  .footnote { font-size: 12px; color: var(--fg-dim); font-family: var(--mono); margin-top: 6px; }
+
+  .verdict {
+    margin: 14px 0; padding: 14px 18px;
+    background: rgba(100,210,255,.06);
+    border: 1px dashed rgba(100,210,255,.4);
+    border-radius: 10px; font-size: 13.5px;
+  }
+  .verdict .who { font-family: var(--mono); font-size: 11.5px; color: var(--accent-5); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
+
+  .changelog {
+    margin: 14px 0; padding: 16px 20px;
+    background: rgba(48,209,88,.04);
+    border: 1px solid rgba(48,209,88,.3);
+    border-radius: 12px;
+  }
+  .changelog h4 { margin: 0 0 10px; color: var(--accent-3); font-size: 13px; }
+  .changelog .from { color: var(--fg-muted); text-decoration: line-through; }
+  .changelog .to { color: #fff; }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Memex × <span>Qdrant 1.18</span></div>
+    <div class="ver">v3 · pinnacle-first</div>
+    <ol>
+      <li><a href="#s1">The Single Invariant</a></li>
+      <li><a href="#s2">2-Expert Validation</a></li>
+      <li><a href="#s3">25 KICKs · 7 Categories</a>
+        <ol class="toc-sub">
+          <li><a href="#catA">A · Query API scoring (5)</a></li>
+          <li><a href="#catB">B · Retrieval primitives (5)</a></li>
+          <li><a href="#catC">C · Storage &amp; perf (5)</a></li>
+          <li><a href="#catD">D · LLM index-time (2)</a></li>
+          <li><a href="#catE">E · LLM runtime (toggle 2)</a></li>
+          <li><a href="#catF">F · Critical fixes (3)</a></li>
+          <li><a href="#catG">G · Infra (3)</a></li>
+        </ol>
+      </li>
+      <li><a href="#s4">Visual WOW (5)</a></li>
+      <li><a href="#s5">Architecture v3</a></li>
+      <li><a href="#s6">14-day Roadmap</a></li>
+      <li><a href="#s7">Risk Register</a></li>
+      <li><a href="#s8">Demo Script · 3-min</a></li>
+      <li><a href="#s9">README + CLAUDE.md update</a></li>
+      <li><a href="#s10">Sources</a></li>
+    </ol>
+  </nav>
+
+  <main class="main">
+    <header class="hero">
+      <span class="ver-tag">v3.1 · PINNACLE-FIRST · 5-EXPERT VALIDATED · 2026-05-18</span>
+      <h1>Memex × Qdrant 1.18<br/>Pinnacle Plan v3.1</h1>
+      <p class="sub">v1/v2의 "no LLM at runtime" 가정을 검증한 v3에 더해, <b>"최신 기능 탐색을 제대로" 사용자 비판에 응답해 3명 추가 전문가 dispatch</b>. Gemma 4 GA 확정 (2026-04-02), v3 self-audit 8개 API-shape error 수정, demo script climax-staged 재설계. 28개 KICK, 5-expert validated.</p>
+
+      <div class="invariant">
+        <b>The only invariant (v3) ·&nbsp;</b> 모든 결정은 "이게 Qdrant 1.18의 정점에 더 가깝게 만드는가?"를 통과해야 한다. README · CLAUDE.md · "no LLM" 선언은 모두 plan에 종속. invariant가 KICK이고, KICK이 invariant다.
+      </div>
+
+      <div class="meta">
+        <span class="pill blue">VSD 2026 · 2026-06-01</span>
+        <span class="pill red">Qdrant 1.18.0 · 2026-05-11</span>
+        <span class="pill yellow">Gemma 4 · GA 2026-04-02</span>
+        <span class="pill blue">28 KICKs · 5-expert validated</span>
+        <span class="pill pink">12s silence climax</span>
+        <span class="pill yellow">Remote: ComBba/memex only</span>
+      </div>
+    </header>
+
+    <!-- ============================ §1 INVARIANT ============================ -->
+    <section id="s1">
+      <h2><span class="num">§1</span> The Single Invariant — and what got demoted</h2>
+      <p class="lede">v1은 합의를, v2는 발산을 보여줬지만 둘 다 *위층의* 잘못된 가정을 그대로 상속했다 — "no LLM at runtime"이 hard rule이라는 가정. v3는 그 가정을 분해한다.</p>
+
+      <h3>VSD 2026 brief는 정확히 무엇을 금지했나</h3>
+      <blockquote>
+        "Think Outside the Bot. Forget the classical RAG chatbot."
+        <span class="src">qdrant.tech/blog/vector-space-day-sf-2026/ · fetched 2026-05-18 (research/03)</span>
+      </blockquote>
+      <p>brief가 금지하는 건 <b>chatbot UX</b>이지 <b>LLM 기술</b>이 아니다. 둘을 등치한 건 저자의 self-imposed 선언(README) + 내가 어제 작성한 CLAUDE.md다. 이건 검증되지 않은 가정이었다.</p>
+
+      <h3>v3의 invariant 재정렬</h3>
+      <div class="grid grid-2">
+        <article class="card" style="border-color:rgba(220,56,45,.4)">
+          <h4 style="color:var(--accent)">🎯 HARD INVARIANT (single)</h4>
+          <p style="font-size:14px"><b>Maximize Qdrant 1.18 pinnacle usage in the demo.</b><br/>Every KICK must answer: "어떤 1.18 feature가 더 visible해지는가?"</p>
+        </article>
+        <article class="card" style="border-color:rgba(255,100,130,.4)">
+          <h4 style="color:var(--accent-6)">⛔ HARD CONSTRAINT</h4>
+          <p style="font-size:14px"><b>No chatbot UX</b> — text input box that talks to LLM. Brief 위반.<br/>(LLM 자체는 허용. visible chat surface가 금지.)</p>
+        </article>
+        <article class="card" style="border-color:rgba(255,214,10,.4)">
+          <h4 style="color:var(--accent-4)">⚖️ NEGOTIABLE (was hard in v1/v2)</h4>
+          <p style="font-size:14px"><b>"No LLM at runtime"</b> — README narrative였을 뿐. v3는 index-time augment 채택, runtime toggle은 default off.</p>
+        </article>
+        <article class="card" style="border-color:rgba(48,209,88,.4)">
+          <h4 style="color:var(--accent-3)">✓ PRESERVED</h4>
+          <p style="font-size:14px">100% local · zero outbound telemetry · git push는 <code>ComBba/memex</code>만 · 1 point per session · uuid_v5 idempotent.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============================ §2 VALIDATION ============================ -->
+    <section id="s2">
+      <h2><span class="num">§2</span> 5-Expert Validation — including v3 self-audit</h2>
+      <p class="lede">사용자 비판 "최신 기능 탐색을 제대로"에 다시 응답해서 추가 3명 전문가 dispatch — Gemma 4 현재 상태, demo video wow, v3 self-audit. 총 검증 횟수 5명.</p>
+
+      <div class="grid grid-2">
+        <article class="card">
+          <h4>Expert 1 · Qdrant 1.18 full inventory<br/><a href="research/06-qdrant-1.18-feature-pinnacle.md" style="font-size:12px">research/06 · 686 lines</a></h4>
+          <p style="font-size:13.5px"><b>80개 feature 카탈로그</b>. 가장 큰 gap: Query-API-as-scoring-engine 전체 (FormulaQuery 1.14, MMR on NearestQuery 1.15, group_by, RelevanceFeedbackQuery 1.17). 스킵 권고: BM42 (experimental).</p>
+        </article>
+        <article class="card">
+          <h4>Expert 2 · LLM augmentation (no chat)<br/><a href="research/07-llm-augmentation-no-chat.md" style="font-size:12px">research/07 · 537 lines</a></h4>
+          <p style="font-size:13.5px"><b>12 패턴 검토</b>. 최고: Pattern #6 Contextual Retrieval. Anthropic 공개 35-67% retrieval-failure 감소. <b>v3 권고</b>: Pattern #6 + #7 (index-time) ship.</p>
+        </article>
+        <article class="card" style="border-color:rgba(255,214,10,.4)">
+          <h4 style="color:var(--accent-4)">Expert 3 · Gemma 4 / Gemini line 2026<br/><a href="research/08-gemini-gemma-2026-line.md" style="font-size:12px">research/08 · 508 lines</a></h4>
+          <p style="font-size:13.5px"><b>Gemma 4 GA 확정 — 2026-04-02</b>. 6주 stability, 30 Ollama tags. KD-01: <code>gemma4:e4b-it-q4_K_M</code> (9.6GB · native function-calling + structured JSON + 128K context · 18-24 tok/s M3). KD-02: <code>gemma4:e2b-it-q4_K_M</code> (7.2GB · 25-30 tok/s M2). 데모 위험 LOW.</p>
+        </article>
+        <article class="card" style="border-color:rgba(255,214,10,.4)">
+          <h4 style="color:var(--accent-4)">Expert 4 · Hackathon demo video wow<br/><a href="research/09-hackathon-demo-video-wow.md" style="font-size:12px">research/09 · 539 lines</a></h4>
+          <p style="font-size:13.5px"><b>가장 큰 변화</b>: 7 surface 24초 균등 분배 → <b>Proactive Recall을 climax로, 1:42–1:58에 12초 musical silence</b>. VSD 2025 11개 중 0개 사용. Music: Bensound CC + Kenney CC0. 필수 참고: <a href="https://youtu.be/4bk44WQv0EM">youtu.be/4bk44WQv0EM</a> (VSD 2025 3rd).</p>
+        </article>
+        <article class="card" style="border-color:rgba(255,100,130,.4); grid-column: span 2">
+          <h4 style="color:var(--accent-6)">Expert 5 · v3 self-audit — ON-TARGET with 8 corrections needed<br/><a href="research/10-qdrant-pinnacle-v3-coverage-review.md" style="font-size:12px">research/10 · 445 lines</a></h4>
+          <p style="font-size:13.5px"><b>Verdict</b>: 1.18 pinnacle 커버 완성도 ON-TARGET (under-claim 0). <b>하지만 8/25 KICK에 API-shape error.</b></p>
+          <ul style="font-size:13px;margin:8px 0">
+            <li><b>가장 위험한 over-claim</b>: KC-01 "TurboQuant (Binary 2-bit)"는 잘못된 등치 — TurboQuant (<code>"turbo"</code>, bits4/bits2/bits1_5/bits1)와 Binary Quantization (<code>"binary"</code>, 1.15)은 다른 family. 구현자가 잘못된 builder 쓰면 헤드라인 위반.</li>
+            <li><b>빠진 진짜 pinnacle 1개</b>: <b>KC-06 strict-mode <code>max_resident_memory_percent: 85</code></b> — 30분 effort, 16GB MacBook 보호.</li>
+            <li><b>필수 페어링 2개</b>: KC-01b (TurboQuant rescore + oversampling, recall 보완), KG-04 (conditional updates + <code>update_mode::Update</code>, embedding staleness).</li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="verdict">
+        <div class="who">v3 verdict (revised)</div>
+        v1/v2의 19 KICK → v3의 25 KICK → 본 self-audit 반영 후 <b>28 KICK</b>. Gemma 3 → <b>Gemma 4 GA 확정</b>. KC-01 TurboQuant 명칭/builder 수정. 새 KICK 3개 추가 (KC-01b · KC-06 · KG-04). Demo Script §8 전면 재설계 — climax-staged.
+      </div>
+    </section>
+
+    <!-- ============================ §3 KICKS ============================ -->
+    <section id="s3">
+      <h2><span class="num">§3</span> 25 KICKs · 7 Categories</h2>
+      <p class="lede">각 KICK은 <span class="qfit">Q-fit</span>(Qdrant 1.18 정점 기여도, 1-5)과 <span class="demofit">demo-fit</span>(3분 영상에서 시청자에게 보이는가, 1-5) 두 축으로 평가. 두 점수 모두 ≥3이면 SHIP. Ship tag: <span class="ship-tag ship">SHIP</span> / <span class="ship-tag cond">COND</span>(eval gate) / <span class="ship-tag toggle">TOGGLE</span>(default off) / <span class="ship-tag skip">SKIP</span>.</p>
+
+      <!-- CAT A -->
+      <div class="cat-header A" id="catA">
+        <span class="cat-tag">Cat A</span>
+        <div>
+          <h3>Query API as scoring engine — 1.14-1.17 핵심 5종</h3>
+          <div class="cat-sub">research/06가 발견한 가장 큰 단일 gap. 모두 Rust client 1.18 노출, 모두 Memex 미사용.</div>
+        </div>
+      </div>
+
+      <article class="kick" data-num="KA-01">
+        <h4>FormulaQuery — lens_search 완전 재설계 (server-side weighted-combine + decay + boost) <span class="ship-tag ship">SHIP</span></h4>
+        <p>현 client-side weighted-sum (<code>indexer.rs:539-615</code>)을 단일 <code>FormulaQuery</code>로. 한 호출에 (lens weights) + (recency decay) + (has_errors boost) 모두 적용. v2의 K01(RRF)보다 한 단계 위.</p>
+        <pre><code>{
+  "prefetch": [...],   // 5 dense + 1 sparse + 1 multivec
+  "query": { "formula": {
+    "sum": [
+      { "mult": [ "$score", { "lens_content": 1.0 } ] },
+      { "mult": [ "$score.path_sparse", 1.5 ] },
+      { "exp_decay": { "x": "start_ts", "scale": 2592000 } },  // 30d
+      { "value": 0.2, "filter": { "key": "has_errors", "match": { "value": true } } }
+    ]
+  } },
+  "limit": 20
+}</code></pre>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 5/5</span>
+          <span class="demofit">demo-fit 5/5</span>
+          <span class="impact"><b>Effort:</b> ~8h</span>
+          <span class="impact"><b>Source:</b> research/06 §3.1</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KA-02">
+        <h4>MMR on NearestQuery — diversity=0.4 on Lens results <span class="ship-tag ship">SHIP</span></h4>
+        <p>v2 K04에 있었으나 별도 카테고리로 격상. 1.15 GA, server-side MMR. cluster 중복 자동 분산. ⌘K 검색에서 같은-프로젝트 6개 결과 대신 6개 프로젝트의 1개씩.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 4/5</span>
+          <span class="demofit">demo-fit 4/5</span>
+          <span class="impact"><b>Effort:</b> ~2h</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KA-03">
+        <h4>Group-by query + group_size — per-project top-3 <span class="ship-tag ship">SHIP</span></h4>
+        <p>Topology의 ⌘K 변형: 결과를 <code>project_name</code>으로 그룹핑, 각 그룹 top-3만. 한 화면에 더 다양한 프로젝트 노출. <i>"우리가 어디서 비슷한 일을 해왔는가"</i> 시각화의 토대.</p>
+        <pre><code>{ "query": {...}, "group_by": "project_name", "group_size": 3, "limit": 8 }</code></pre>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 4/5</span>
+          <span class="demofit">demo-fit 4/5</span>
+          <span class="impact"><b>Source:</b> research/06 §3.7</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KA-04">
+        <h4>RelevanceFeedbackQuery (1.17) — Mix &amp; Match의 진화 <span class="ship-tag cond">COND</span></h4>
+        <p>Mix &amp; Match positive/negative anchor에 사용자가 👍/👎 추가 → server-side anchor 재계산. Discovery API의 v2. demo에서 시청자가 보는 "recommendation feels alive" 순간.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 5/5</span>
+          <span class="demofit">demo-fit 3/5</span>
+          <span class="impact"><b>Effort:</b> ~6h (UI + backend)</span>
+          <span class="impact"><b>Gate:</b> Daichi가 storyboard에 끼우면 SHIP, 아니면 backend만</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KA-05">
+        <h4>Weighted RRF fusion (1.17) — prefetch fusion에 weight <span class="ship-tag ship">SHIP</span></h4>
+        <p>v2 K01의 plain RRF를 weighted RRF로. 각 prefetch에 weight 부여 → KA-01의 FormulaQuery와 결합 시 2단계 정렬.</p>
+        <pre><code>"query": { "fusion": "rrf", "weights": [1.0, 1.5, 0.8, 1.2] }</code></pre>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 4/5</span>
+          <span class="demofit">demo-fit 2/5 (invisible)</span>
+          <span class="impact"><b>Effort:</b> ~1h (KA-01에 함께)</span>
+        </div>
+      </article>
+
+      <!-- CAT B -->
+      <div class="cat-header B" id="catB">
+        <span class="cat-tag">Cat B</span>
+        <div>
+          <h3>Advanced retrieval primitives — 5종</h3>
+          <div class="cat-sub">v2의 K02/K03/K12/K14 통합 + 신규 Order-by.</div>
+        </div>
+      </div>
+
+      <article class="kick" data-num="KB-01">
+        <h4>Late-interaction MaxSim (6번째 vector <code>content_late</code>) <span class="ship-tag cond">COND</span></h4>
+        <p>v2 K02. 같은 BGE-small token-level 출력 multivector. eval gate D-8 nDCG +15% 미달 시 revert.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 5/5</span>
+          <span class="demofit">demo-fit 3/5</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KB-02">
+        <h4>Server-side BM25 sparse on <code>path</code> + <code>tool</code> <span class="ship-tag ship">SHIP</span></h4>
+        <p>v2 K03. 새 client 의존 0. "edit auth.js" 쿼리에서 ranking이 명시적으로 바뀌는 demo 순간.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 5/5</span>
+          <span class="demofit">demo-fit 5/5</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KB-03">
+        <h4>Discovery API true context pairs <span class="ship-tag cond">COND</span></h4>
+        <p>v2 K12. 단순 anchor → (positive, reference_negative) 페어. WOW-5 Discovery Splash의 진정한 hyperplane.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 4/5</span>
+          <span class="demofit">demo-fit 4/5</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KB-04">
+        <h4>ACORN filterable HNSW (strict filter during search) <span class="ship-tag ship">SHIP</span></h4>
+        <p>v2 K14의 정확한 이름. <code>has_errors=true</code> 필터를 HNSW 그래프 탐색 중 적용. recall@10 +20% 추정.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 4/5</span>
+          <span class="demofit">demo-fit 2/5</span>
+          <span class="impact"><b>Source:</b> research/06 §3.4</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KB-05">
+        <h4>Order-by query (1.16) — temporal navigation <span class="ship-tag ship">SHIP</span></h4>
+        <p>Time Machine stack의 정렬 옵션: 단순 시간순 외에 <code>last_error_ts</code>, <code>longest_session</code>, <code>most_tools</code> 등. v2엔 없던 신규.</p>
+        <pre><code>{ "order_by": { "key": "start_ts", "direction": "desc" }, "limit": 80 }</code></pre>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 4/5</span>
+          <span class="demofit">demo-fit 3/5</span>
+        </div>
+      </article>
+
+      <!-- CAT C -->
+      <div class="cat-header C" id="catC">
+        <span class="cat-tag">Cat C</span>
+        <div>
+          <h3>Storage &amp; performance — 5종</h3>
+          <div class="cat-sub">데모 머신 부담 ↓, 인덱싱 가속, 인덱스 효율.</div>
+        </div>
+      </div>
+
+      <article class="kick" data-num="KC-01">
+        <h4>TurboQuant <code>bits2</code> (1.18 NEW · NOT Binary Quantization) <span class="ship-tag ship">SHIP</span></h4>
+        <p><b>⚠️ research/10 audit 결과 수정</b>: TurboQuant ≠ Binary Quantization. TurboQuant는 1.18 신규 family (<code>"turbo"</code> config, <code>bits4/bits2/bits1_5/bits1</code> enum). Binary Quant는 1.15의 별도 family (<code>"binary"</code> config). v3 초안의 "Binary 2-bit" 표기는 잘못. 올바른 syntax:</p>
+        <pre><code>"quantization_config": {
+  "turbo": { "bits": "Bits2", "always_ram": true }
+}</code></pre>
+        <p><code>bits2</code>로 vector 16× 압축. 6개 벡터 N=10k → storage 2GB → ~125MB.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 5/5</span>
+          <span class="demofit">demo-fit 1/5 (invisible)</span>
+          <span class="impact"><b>Source:</b> research/06 §3.13 · research/10 Verdict 2</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KC-01b">
+        <h4>TurboQuant rescore + oversampling pairing <span class="ship-tag ship">SHIP</span></h4>
+        <p><b>research/10 권고 필수 페어링</b>: <code>bits2</code> 단독은 recall ~10-15% 저하. <code>search_params.quantization.rescore=true</code> + <code>oversampling=2.0</code>로 quantized HNSW에서 후보 수집 후 raw vector로 rescore → recall 회복. 1.18 GA, Rust client 노출.</p>
+        <pre><code>"params": { "quantization": {
+  "ignore": false, "rescore": true, "oversampling": 2.0
+} }</code></pre>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 4/5 (KC-01 정상화)</span>
+          <span class="demofit">demo-fit 0/5 (invisible)</span>
+          <span class="impact"><b>Effort:</b> ~1h · KC-01에 페어링</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KC-02">
+        <h4>Per-vector HNSW tuning (m, ef_c, ef_s) <span class="ship-tag cond">COND</span></h4>
+        <p>v2 K15. 벡터별로 다른 HNSW 파라미터. <code>content</code>는 <code>m=24,ef_c=200</code>, <code>tool</code>은 <code>m=12,ef_c=64</code>.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 3/5</span>
+          <span class="demofit">demo-fit 1/5</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KC-03">
+        <h4>Tenant index (per-project partitioning) <span class="ship-tag ship">SHIP</span></h4>
+        <p>1.17 신규. <code>project_name</code>을 tenant key로 → per-project HNSW 그래프. 같은-프로젝트 쿼리가 다른 프로젝트 데이터를 스캔하지 않음. v2엔 없던 신규.</p>
+        <pre><code>"hnsw_config": { "payload_m": 16 },
+"payload_index": { "project_name": { "type": "keyword", "is_tenant": true } }</code></pre>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 4/5</span>
+          <span class="demofit">demo-fit 2/5</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KC-04">
+        <h4>Datetime native index on <code>start_ts</code> <span class="ship-tag ship">SHIP</span></h4>
+        <p>v2 K16. 현 integer range → native datetime. KA-01의 <code>exp_decay</code>가 더 정확.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 3/5</span>
+          <span class="demofit">demo-fit 1/5</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KC-05">
+        <h4>spawn_blocking + Semaphore + batch=32 <span class="ship-tag ship">SHIP</span></h4>
+        <p>v2 K06. ONNX inference를 blocking pool로. cross-session embed batch.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 2/5</span>
+          <span class="demofit">demo-fit 3/5</span>
+          <span class="impact"><b>Speedup:</b> cold scan 3-4×</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KC-06">
+        <h4>Strict mode <code>max_resident_memory_percent: 85</code> (research/10 NEW) <span class="ship-tag ship">SHIP</span></h4>
+        <p><b>research/10이 발견한 빠진 진짜 pinnacle 1개</b>. 1.18 GA strict mode. 데모 머신 16GB MacBook에서 mid-demo OOM 방어. 30분 effort.</p>
+        <pre><code>"strict_mode_config": {
+  "enabled": true,
+  "max_resident_memory_percent": 85,
+  "max_query_limit": 100
+}</code></pre>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 3/5</span>
+          <span class="demofit">demo-fit 1/5 (invisible but ship-blocker on 16GB)</span>
+          <span class="impact"><b>Effort:</b> ~30min</span>
+          <span class="impact"><b>Source:</b> research/10 §Verdict 1 top miss</span>
+        </div>
+      </article>
+
+      <!-- CAT D -->
+      <div class="cat-header D" id="catD">
+        <span class="cat-tag">Cat D</span>
+        <div>
+          <h3>LLM index-time augmentation — 2종 (NEW in v3)</h3>
+          <div class="cat-sub">runtime 0 호출 · "no LLM at runtime" 배지 유지 가능 · Anthropic Contextual Retrieval 패턴.</div>
+        </div>
+      </div>
+
+      <article class="kick" data-num="KD-01">
+        <h4>Pattern #6 Contextual Retrieval — Gemma 4 E4B (native structured JSON) <span class="ship-tag ship">SHIP</span></h4>
+        <p><code>scan --index</code>에서만 LLM 호출. Ollama 호스팅 <b><code>gemma4:e4b-it-q4_K_M</code></b> (9.6GB · 2026-04-02 GA · Apache 2.0 · <b>native function-calling + structured JSON output</b> + 128K context). 각 세션에 대해 schema-guaranteed JSON:</p>
+        <pre><code>{
+  "topic": "Tauri macOS bundle signing",
+  "intent": "build",
+  "entities": ["icons/", "Cargo.toml", "Memex.app"],
+  "outcome": "resolved · symlink fix",
+  "arc": "debug → identify → fix → verify"
+}</code></pre>
+        <p>→ Qdrant payload index. Time Machine 카드 chip, Topology cluster auto-label의 토대, Discovery filter 축.</p>
+        <blockquote>"Contextual retrieval reduced retrieval-failure rate by 35-67% across our corpus benchmarks."<span class="src">anthropic.com/news/contextual-retrieval · research/07 §Pattern 6</span></blockquote>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 4/5 (payload + filter axes)</span>
+          <span class="demofit">demo-fit 5/5 (시청자가 chip을 본다)</span>
+          <span class="impact"><b>LLM cost:</b> ~500 tokens × 80 sessions × 1회 = 40k tokens · Gemma 4 E4B에서 ~2분 (M3 MLX, 18-24 tok/s decode)</span>
+          <span class="impact"><b>Effort:</b> ~8h</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KD-02">
+        <h4>Pattern #7 Cluster auto-labeling — Gemma 4 E2B <span class="ship-tag ship">SHIP</span></h4>
+        <p>Topology cluster 자연어 라벨링. 현재 <i>"code+shell · Bash×1350"</i> → <i>"Tauri build infrastructure (May 2026)"</i>. <b><code>gemma4:e2b-it-q4_K_M</code> (7.2GB · 25-30 tok/s M2)</b>로 충분 — 8 cluster × 짧은 출력 = ~6초 총 wall-clock. 또는 KD-01의 E4B 재사용 (메모리 1개만 resident).</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 3/5</span>
+          <span class="demofit">demo-fit 5/5 (Topology가 즉시 의미를 띈다)</span>
+          <span class="impact"><b>LLM cost:</b> 8 cluster × 200 tokens = 1.6k tokens · 30초</span>
+        </div>
+      </article>
+
+      <!-- CAT E -->
+      <div class="cat-header E" id="catE">
+        <span class="cat-tag">Cat E</span>
+        <div>
+          <h3>LLM runtime augmentation — 2종 TOGGLE (default OFF)</h3>
+          <div class="cat-sub">brief OK이지만 README의 "no LLM at runtime" 약속 흔들림. v1.1 settings toggle "Lens 2.0: AI augmentation".</div>
+        </div>
+      </div>
+
+      <article class="kick" data-num="KE-01">
+        <h4>Pattern #1 HyDE — query-time hypothetical doc embed <span class="ship-tag toggle">TOGGLE</span></h4>
+        <p>사용자 쿼리 → LLM이 가상 답변 생성 → 그 답변을 embed → 그 임베딩으로 search. HyDE 원논문.</p>
+        <blockquote>"HyDE generates hypothetical documents which are then encoded and used to retrieve real documents from the corpus."<span class="src">arxiv.org/abs/2212.10496 · 2022 · Gao et al.</span></blockquote>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 3/5</span>
+          <span class="demofit">demo-fit 2/5 (settings 켜야 보임)</span>
+          <span class="impact"><b>Default:</b> OFF · README 약속 유지 위해</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KE-02">
+        <h4>Pattern #12 MIPS-aware query rewriting <span class="ship-tag toggle">TOGGLE</span></h4>
+        <p>LLM이 쿼리 의도를 분석해서 6개 named vector 중 어디에 weight를 더 줄지 결정. ⌘K 자동 lens 튜닝.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 4/5</span>
+          <span class="demofit">demo-fit 3/5 (toggle 켜면 보임)</span>
+          <span class="impact"><b>Default:</b> OFF</span>
+        </div>
+      </article>
+
+      <!-- CAT F -->
+      <div class="cat-header F" id="catF">
+        <span class="cat-tag">Cat F</span>
+        <div>
+          <h3>Critical fixes — 3종 (ship-blocker)</h3>
+          <div class="cat-sub">B2 Aisha hold권. demo 전 fix 필수.</div>
+        </div>
+      </div>
+
+      <article class="kick" data-num="KF-01">
+        <h4>SEC-003 path containment fix <span class="ship-tag ship">SHIP</span></h4>
+        <p>analysis/04. <code>source_path</code> in payload → <code>File::open</code>에 검증 추가. <code>~/.claude/projects</code> 하위만 통과.</p>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 0/5</span>
+          <span class="demofit">demo-fit 0/5</span>
+          <span class="impact"><b>Priority:</b> SHIP-BLOCKER</span>
+        </div>
+      </article>
+
+      <article class="kick" data-num="KF-02">
+        <h4>SEC-004 snapshot_export path validation <span class="ship-tag ship">SHIP</span></h4>
+        <p>raw PathBuf → app sandbox 하위만 허용.</p>
+      </article>
+
+      <article class="kick" data-num="KF-03">
+        <h4>Signed snapshot envelope (SHA-256 + issuer) <span class="ship-tag ship">SHIP</span></h4>
+        <p>v2 K05의 보안 부분. import 시 검증.</p>
+      </article>
+
+      <!-- CAT G -->
+      <div class="cat-header G" id="catG">
+        <span class="cat-tag">Cat G</span>
+        <div>
+          <h3>Infra &amp; cache — 3종</h3>
+          <div class="cat-sub">v2의 K07/K08/K09 통합.</div>
+        </div>
+      </div>
+
+      <article class="kick" data-num="KG-01">
+        <h4>Topology insights cache (root, max_mtime) <span class="ship-tag ship">SHIP</span></h4>
+        <p>10k 세션에서 17 min → 200 ms (analysis/05 QW-6).</p>
+      </article>
+      <article class="kick" data-num="KG-02">
+        <h4>Predict pivot-parse LRU (64-entry, mtime-keyed) <span class="ship-tag ship">SHIP</span></h4>
+        <p>300-900 ms → ~50 ms warm.</p>
+      </article>
+      <article class="kick" data-num="KG-03">
+        <h4>Payload index on <code>schema_version</code> + dual-write <span class="ship-tag ship">SHIP</span></h4>
+        <p>v1 collection → v3 collection migration의 안전망.</p>
+      </article>
+
+      <article class="kick" data-num="KG-04">
+        <h4>Conditional updates + <code>update_mode::Update</code> (research/10 NEW) <span class="ship-tag ship">SHIP</span></h4>
+        <p>1.17 GA. embedding staleness worker가 <code>schema_version &lt; 3</code> 포인트만 재인덱싱. <code>update_mode::Update</code>로 부분 갱신, race-free. <code>conditional update</code>로 동시 인덱싱 중 안전.</p>
+        <pre><code>// 부분 페이로드 갱신 — race-free
+client.update_payload(
+  &collection,
+  &points,
+  payload,
+  Some(update_mode::Update),
+  Some(condition),  // schema_version &lt; 3
+).await</code></pre>
+        <div class="impact-row">
+          <span class="qfit">Q-fit 3/5</span>
+          <span class="demofit">demo-fit 0/5</span>
+          <span class="impact"><b>Effort:</b> ~2h</span>
+        </div>
+      </article>
+
+      <h3>Ship-tag tally · v3 final (28 KICKs after self-audit)</h3>
+      <ul style="font-size:13.5px">
+        <li><span class="ship-tag ship">SHIP</span> × <b>22</b> — KA-01/02/03/05, KB-02/04/05, KC-01/01b/03/04/05/<b>06 NEW</b>, KD-01/02, KF-01/02/03, KG-01/02/03/<b>04 NEW</b></li>
+        <li><span class="ship-tag cond">COND</span> × <b>4</b> — KA-04, KB-01, KB-03, KC-02</li>
+        <li><span class="ship-tag toggle">TOGGLE</span> × <b>2</b> (default off) — KE-01, KE-02</li>
+        <li><span class="ship-tag skip">SKIP</span> × <b>2</b> (research/06 권고) — BM42, 공격적 strict-mode without rescore</li>
+      </ul>
+      <p class="footnote">v3 self-audit (research/10) 결과 25 → <b>28 KICK</b>. 추가 3개: KC-01b (TurboQuant rescore 페어링), KC-06 (max_resident_memory_percent), KG-04 (conditional updates).</p>
+    </section>
+
+    <!-- ============================ §4 WOW ============================ -->
+    <section id="s4">
+      <h2><span class="num">§4</span> Visual WOW — v2와 동일 + KD-01/02로 카드 chip이 살아남</h2>
+      <p class="lede">5개 WOW는 v2 유지. 차이는 Cat D가 각 surface의 텍스트를 풍부하게 채운다는 것.</p>
+
+      <h3>WOW-1 · Time Machine 2.0 + Contextual chips (KD-01)</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌──────────────────────────── Memex ────────────────────────────┐</span>
+<span class="dim">│</span>          <span class="accent-2">╭──────────────────────────────────╮</span>                <span class="dim">│</span>
+<span class="dim">│</span>          <span class="accent-2">│ #80  today                        │</span>                <span class="dim">│</span>
+<span class="dim">│</span>          <span class="accent-2">│ [Tauri build] [signing] [icons]   │</span>  <span class="accent-4">← KD-01 chips</span>   <span class="dim">│</span>
+<span class="dim">│</span>          <span class="accent-2">│ "resolved · symlink fix"          │</span>                <span class="dim">│</span>
+<span class="dim">│</span>          <span class="accent-2">╰──────────────────────────────────╯</span>                <span class="dim">│</span>
+<span class="dim">│</span>            <span class="dim">│ #79  yesterday</span> <span class="accent">●━━━━━━━━━━━━━━━━━━●</span>             <span class="dim">│</span>
+<span class="dim">│</span>            <span class="dim">│ [Tauri build] [signing] sim 0.93   │</span>                <span class="dim">│</span>
+<span class="dim">└──────────────────────────────────────────────────────────────┘</span></div></div>
+
+      <h3>WOW-2 · Topology Galaxy + cluster auto-labels (KD-02)</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌────────────────── Topology Galaxy ──────────────────┐</span>
+<span class="dim">│</span>     <span class="accent-3">●●●</span>                                  <span class="accent-5">●●</span>     <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent-3">●● ●●</span>   <span class="accent-2">═══════════════════</span>      <span class="accent-5">●●●●●</span>      <span class="dim">│</span>
+<span class="dim">│</span>     <span class="accent-3">●●●</span>   <span class="accent-2">bridge sim 0.91</span>       <span class="accent-5">●● ●●</span>          <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent-3">"Marketing copy + landing pages"</span>   <span class="accent-5">"YC SAFE filings"</span>  <span class="dim">│</span>
+<span class="dim">│</span>          <span class="accent-3">10 sess · KD-02 label</span>          <span class="accent-5">14 sess · KD-02</span>   <span class="dim">│</span>
+<span class="dim">└─────────────────────────────────────────────────────┘</span></div></div>
+
+      <h3>WOW-3 · Lens contribution bars + FormulaQuery score breakdown (KA-01)</h3>
+      <div class="mockup"><div class="mockup-body"><span class="dim">┌── Lens · "tauri build failed missing icons" ──────────────────┐</span>
+<span class="dim">│</span> <span class="accent">#1</span> <span class="fg">memex · 'icons/ symlink fix'</span>                              <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent">██████████</span><span class="accent-4">████</span><span class="accent-2">██</span><span class="accent-5">██</span><span class="accent-3">█</span>                                  <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent">content .42 (lens 1.0)</span> <span class="accent-4">error .19 (lens 0.8)</span>             <span class="dim">│</span>
+<span class="dim">│</span>    <span class="accent-3">recency boost ×1.4</span> <span class="accent-2">has_errors boost +0.2</span> <span class="accent-5">final .71</span>     <span class="dim">│</span>
+<span class="dim">│</span>    <span class="dim">↑ KA-01 FormulaQuery breakdown · server-side single call</span>   <span class="dim">│</span>
+<span class="dim">└───────────────────────────────────────────────────────────────┘</span></div></div>
+
+      <h3>WOW-4 · Predict + KD-01 outcome chips · WOW-5 · Discovery splash (v2 유지)</h3>
+      <p style="font-size:13.5px;color:var(--fg-muted)">WOW-4/5는 v2 mockup 그대로. KD-01의 outcome 필드가 Predict thumbnail에 "<i>resolved · …</i>" 캡션으로 자연 등장.</p>
+    </section>
+
+    <!-- ============================ §5 ARCH ============================ -->
+    <section id="s5">
+      <h2><span class="num">§5</span> Architecture v3</h2>
+      <p class="lede">v2 6-module split + <b>llm/</b> 새 모듈 (Ollama client). Qdrant 측 추가: Formula scoring + Tenant index + TurboQuant.</p>
+
+      <div class="arch-wrap">
+<svg viewBox="0 0 960 580" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Memex v3 architecture">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#dc382d" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#bf5af2" stop-opacity=".15"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#64d2ff" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#64d2ff" stop-opacity=".05"/>
+    </linearGradient>
+    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffd60a" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#ffd60a" stop-opacity=".05"/>
+    </linearGradient>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8b95b3"/></marker>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#dc382d"/></marker>
+    <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ffd60a"/></marker>
+  </defs>
+  <style>
+    .lbl { font-family: -apple-system,"Inter",sans-serif; font-size: 13px; fill: #e8eaf1; }
+    .sm { font-family: "JetBrains Mono",monospace; font-size: 10.5px; fill: #8b95b3; }
+    .ti { font-family: -apple-system,"Inter",sans-serif; font-size: 12px; fill: #8b95b3; text-transform: uppercase; letter-spacing: .05em; }
+    .b { fill: #131826; stroke: #2a3658; stroke-width: 1; }
+    .ba { stroke: #64d2ff; stroke-width: 1.5; }
+    .e { stroke: #5d678a; stroke-width: 1.2; fill: none; }
+    .eh { stroke: #64d2ff; stroke-width: 1.8; fill: none; }
+    .el { stroke: #ffd60a; stroke-width: 1.5; fill: none; stroke-dasharray: 4 3; }
+  </style>
+
+  <rect x="20" y="260" width="180" height="80" rx="10" class="b"/>
+  <text x="110" y="285" text-anchor="middle" class="ti">filesystem</text>
+  <text x="110" y="308" text-anchor="middle" class="lbl">~/.claude/projects/</text>
+  <text x="110" y="325" text-anchor="middle" class="sm">**/*.jsonl</text>
+
+  <rect x="240" y="100" width="160" height="60" rx="8" class="b"/>
+  <text x="320" y="125" text-anchor="middle" class="lbl">parser.rs</text>
+  <text x="320" y="143" text-anchor="middle" class="sm">Session · Turn</text>
+
+  <!-- Ollama box (NEW in v3) -->
+  <rect x="20" y="100" width="200" height="120" rx="12" fill="url(#g3)" stroke="#ffd60a" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="120" y="122" text-anchor="middle" class="ti" style="fill:#ffd60a">Ollama (local, index-time only)</text>
+  <rect x="35" y="135" width="170" height="36" rx="6" class="b"/>
+  <text x="120" y="155" text-anchor="middle" class="lbl">gemma4:e4b (KD-01)</text>
+  <text x="120" y="167" text-anchor="middle" class="sm">structured JSON · 128K ctx</text>
+  <rect x="35" y="178" width="170" height="36" rx="6" class="b"/>
+  <text x="120" y="198" text-anchor="middle" class="lbl">gemma4:e2b (KD-02)</text>
+  <text x="120" y="210" text-anchor="middle" class="sm">cluster auto-labels</text>
+
+  <!-- indexer cluster -->
+  <rect x="230" y="230" width="450" height="290" rx="14" fill="url(#g1)" stroke="#dc382d" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="455" y="252" text-anchor="middle" class="ti" style="fill:#dc382d">indexer/ (6 modules · v3 + llm/)</text>
+
+  <rect x="245" y="265" width="125" height="46" rx="6" class="b"/>
+  <text x="307" y="285" text-anchor="middle" class="lbl">embed.rs</text>
+  <text x="307" y="301" text-anchor="middle" class="sm">spawn_blocking · KC-05</text>
+
+  <rect x="380" y="265" width="125" height="46" rx="6" class="b"/>
+  <text x="442" y="285" text-anchor="middle" class="lbl">schema.rs</text>
+  <text x="442" y="301" text-anchor="middle" class="sm">6 dense + 2 sparse</text>
+
+  <rect x="515" y="265" width="155" height="46" rx="6" class="b"/>
+  <text x="592" y="285" text-anchor="middle" class="lbl">llm/ (NEW)</text>
+  <text x="592" y="301" text-anchor="middle" class="sm">Ollama client · KD</text>
+
+  <rect x="245" y="325" width="125" height="46" rx="6" class="b ba"/>
+  <text x="307" y="345" text-anchor="middle" class="lbl">search.rs</text>
+  <text x="307" y="361" text-anchor="middle" class="sm">FormulaQuery · KA</text>
+
+  <rect x="380" y="325" width="125" height="46" rx="6" class="b"/>
+  <text x="442" y="345" text-anchor="middle" class="lbl">discover.rs</text>
+  <text x="442" y="361" text-anchor="middle" class="sm">RelevanceFeedback</text>
+
+  <rect x="515" y="325" width="155" height="46" rx="6" class="b"/>
+  <text x="592" y="345" text-anchor="middle" class="lbl">snapshot.rs</text>
+  <text x="592" y="361" text-anchor="middle" class="sm">signed · KF-03</text>
+
+  <rect x="245" y="385" width="425" height="46" rx="6" class="b"/>
+  <text x="457" y="405" text-anchor="middle" class="lbl">predict.rs · LRU (KG-02) · topology.rs · insights cache (KG-01)</text>
+
+  <rect x="245" y="445" width="425" height="40" rx="6" class="b"/>
+  <text x="457" y="468" text-anchor="middle" class="sm">commands.rs (thin Tauri IPC)</text>
+
+  <!-- Qdrant -->
+  <rect x="720" y="230" width="220" height="290" rx="12" fill="url(#g2)" stroke="#64d2ff" stroke-width="1"/>
+  <text x="830" y="252" text-anchor="middle" class="ti" style="fill:#64d2ff">Qdrant 1.18 (local)</text>
+  <rect x="735" y="270" width="190" height="42" rx="6" class="b"/>
+  <text x="830" y="290" text-anchor="middle" class="lbl">memex_sessions_v3</text>
+  <text x="830" y="304" text-anchor="middle" class="sm">schema_version=3 · KG-03</text>
+  <rect x="735" y="320" width="190" height="46" rx="6" class="b"/>
+  <text x="830" y="340" text-anchor="middle" class="sm" style="fill:#e8eaf1">5 dense + 1 multivec</text>
+  <text x="830" y="356" text-anchor="middle" class="sm">+ 2 sparse · TurboQuant</text>
+  <rect x="735" y="374" width="190" height="42" rx="6" class="b"/>
+  <text x="830" y="392" text-anchor="middle" class="sm" style="fill:#e8eaf1">FormulaQuery + RRF + MMR</text>
+  <text x="830" y="406" text-anchor="middle" class="sm">group_by · RelevanceFB</text>
+  <rect x="735" y="424" width="190" height="42" rx="6" class="b"/>
+  <text x="830" y="442" text-anchor="middle" class="sm" style="fill:#e8eaf1">ACORN · Tenant idx</text>
+  <text x="830" y="456" text-anchor="middle" class="sm">datetime · payload idx</text>
+
+  <rect x="20" y="20" width="450" height="60" rx="10" class="b"/>
+  <text x="245" y="44" text-anchor="middle" class="ti">Tauri 2 webview · 7 surfaces (chat-free)</text>
+  <text x="245" y="64" text-anchor="middle" class="sm">Time Machine · Topology · Lens · Mix&amp;Match · Predict · Recall · Replay</text>
+
+  <path class="e" d="M200,300 L230,300" marker-end="url(#a1)"/>
+  <path class="e" d="M320,160 L320,265" marker-end="url(#a1)"/>
+  <path class="el" d="M120,222 L120,250 L240,250 L590,265" marker-end="url(#a3)"/>
+  <path class="eh" d="M670,348 L720,348" marker-end="url(#a2)"/>
+  <path class="e" d="M670,290 L720,290" marker-end="url(#a1)"/>
+  <path class="e" d="M457,485 C 457,520 250,520 250,90" marker-end="url(#a1)"/>
+
+  <text x="495" y="555" class="sm">Hot path · search.rs ↔ Qdrant Formula+RRF (KA-01) ·&nbsp;&nbsp;Ollama path only during scan --index (KD)</text>
+</svg>
+      </div>
+      <p class="footnote">새 모듈 <code>indexer/llm/</code>은 Ollama HTTP API에 <code>localhost:11434</code>로 호출. <code>scan --index</code> 진입점에서만 사용. Ollama 없으면 자동 degrade — <code>topic/intent</code> 필드 empty, KD-02 라벨은 "code+shell · Bash×1350" 기존 포맷.</p>
+    </section>
+
+    <!-- ============================ §6 ROADMAP ============================ -->
+    <section id="s6">
+      <h2><span class="num">§6</span> 14-day Roadmap · v3</h2>
+      <p class="lede">v2와 같은 14일 구조. Cat A (Query API)가 D-12~D-10에 집중 / Cat D (LLM index-time)는 D-11~D-9 / 나머지는 v2 schedule 흡수.</p>
+
+      <div class="timeline">
+        <div class="h">Day</div><div class="h">Track A · Strategy</div><div class="h">Track B · Engineering</div><div class="h">Gate</div>
+
+        <div class="day">D-14</div><div>brief lock · v3 invariant 채택</div><div>KF-01/02 SEC fix · Ollama 설치 검증</div><div class="gate amber">SEC fix</div>
+        <div class="day">D-13</div><div>demo script v3 draft</div><div>KA-01 FormulaQuery spike · KC-01 TurboQuant</div><div class="gate">spike PR</div>
+        <div class="day">D-12</div><div>UX motion tokens</div><div>KA-02/05 MMR+wRRF · KB-02 BM25</div><div class="gate go">G0 ✓</div>
+        <div class="day">D-11</div><div>chip design system</div><div>KD-01 Pattern #6 — Gemma 4 E4B structured-JSON prompt + payload</div><div class="gate">eval start</div>
+        <div class="day">D-10</div><div>checkpoint #1</div><div>KA-03 group_by · KB-05 order_by · KC-05 spawn_blocking</div><div class="gate go">G1-pre ✓</div>
+        <div class="day">D-9</div><div>storyboard 확정</div><div>KD-02 cluster labels · KB-01 content_late A/B</div><div class="gate amber">eval gate KD-01</div>
+        <div class="day">D-8</div><div>WOW-1 chip 모션</div><div>KA-04 RelevanceFB · KB-04 ACORN · KC-03 tenant idx</div><div class="gate amber">KB-01 nDCG gate</div>
+        <div class="day">D-7</div><div>demo draft 1</div><div>WOW-2 cluster label render · KB-03 context pairs</div><div class="gate">visual</div>
+        <div class="day">D-6</div><div>team review</div><div>WOW-4 cinematic · KG-01/02 caches</div><div class="gate">usability</div>
+        <div class="day">D-5</div><div>landing copy update</div><div>KF-03 signed snapshot · KG-03 dual-write</div><div class="gate go">G1 freeze ✓</div>
+        <div class="day">D-4</div><div>demo draft 2</div><div>full regression · TurboQuant index size 측정</div><div class="gate freeze">FEATURE FREEZE</div>
+        <div class="day">D-3</div><div>README v3 PR open</div><div>schema lock · bugfix only</div><div class="gate freeze">schema lock + README</div>
+        <div class="day">D-2</div><div>Google Form</div><div>DMG clean-machine test (Ollama 없는 환경 포함)</div><div class="gate">build test</div>
+        <div class="day">D-1</div><div>dry-run · README v3 merge</div><div>hotfix only</div><div class="gate freeze">SHIP FREEZE</div>
+        <div class="day">D-0</div><div>submit before 23:59 UTC</div><div>—</div><div class="gate go">SUBMIT ✓</div>
+      </div>
+    </section>
+
+    <!-- ============================ §7 RISK ============================ -->
+    <section id="s7">
+      <h2><span class="num">§7</span> Risk Register v3</h2>
+      <table class="risk">
+        <thead><tr><th>ID</th><th>Sev</th><th>Risk</th><th>Mitigation</th><th>Owner</th></tr></thead>
+        <tbody>
+          <tr><td>R1</td><td class="sev high">HIGH</td><td>SEC-003 path containment</td><td>D-14 fix</td><td>B2 Aisha</td></tr>
+          <tr><td>R2</td><td class="sev high">HIGH</td><td>demo 영상 미녹화 → DQ</td><td>D-13 storyboard · D-7 draft 1</td><td>A4 Daichi</td></tr>
+          <tr><td>R3 (v3)</td><td class="sev high">HIGH</td><td>Ollama 의존 — clean-machine 데모에 미설치</td><td>graceful degrade · KD-01 empty 시 v1 포맷 fallback · README 설치 가이드</td><td>B3 Felix</td></tr>
+          <tr><td>R4 (v3)</td><td class="sev med">MED</td><td>FormulaQuery 문법 학습 곡선</td><td>D-13 spike PR · qdrant-client 1.18 예제 검증</td><td>B1 Hiroshi</td></tr>
+          <tr><td>R5</td><td class="sev med">MED</td><td>KB-01 late-interaction nDCG 무효</td><td>D-8 eval gate · revert (Marcus 조건)</td><td>B4 Priya</td></tr>
+          <tr><td>R6</td><td class="sev med">MED</td><td>TurboQuant 정확도 손실</td><td>D-13 spike에서 nDCG 측정 · SQ로 fallback</td><td>B3 Felix</td></tr>
+          <tr><td>R7</td><td class="sev med">MED</td><td>60fps 미달 (Topology + WOW-2)</td><td>WebGL particle 금지</td><td>B5 Min-jae</td></tr>
+          <tr><td>R8</td><td class="sev low">LOW</td><td>Qdrant 1.18 → 1.19 snapshot 호환성</td><td>schema_version=3 명시</td><td>B3 Felix</td></tr>
+          <tr><td>R9 (v3)</td><td class="sev low">LOW</td><td>README v3 merge가 마감 직전</td><td>D-3 PR open · D-1 merge · landing은 D-1까지 free</td><td>A1 Eunha</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============================ §8 DEMO ============================ -->
+    <section id="s8">
+      <h2><span class="num">§8</span> Demo Script · v3.1 climax-staged (research/09)</h2>
+      <p class="lede"><b>v3 초안의 가장 큰 결함</b>: 7 surface에 24초씩 균등 분배 → 어떤 frame도 peak에 도달 못함. <b>research/09 director's verdict</b>: Proactive Recall을 climax로 격상, 1:42–1:58 사이 <b>12초 musical silence</b> 배치. VSD 2025 honored 11개 중 0개 사용 → Memex가 첫 사용자.</p>
+
+      <h3>Production stack (research/09)</h3>
+      <ul style="font-size:13.5px">
+        <li><b>Music</b>: Bensound CC-attribution 1트랙 (예: "Slow Motion" 또는 "Cinematic Documentary"). 1:42–1:58 사이 mute.</li>
+        <li><b>SFX</b>: Kenney UI Audio (CC0) 6 hit (click · hover · chime · save · banner · outro).</li>
+        <li><b>Capture</b>: 60fps screen recording. 카메라 이동 = OBS scene transition.</li>
+        <li><b>Caption</b>: 큰 kerning, Karpathy 스타일. KICK 이름 호명 (≤2단어).</li>
+        <li><b>App audio</b>: <b>0</b>. 모든 sound는 post (DaVinci Resolve).</li>
+        <li><b>Required reference viewing (전 팀)</b>: <a href="https://youtu.be/4bk44WQv0EM">youtu.be/4bk44WQv0EM</a> (VSD 2025 3위 "Spatio-Temporal NPCs").</li>
+      </ul>
+
+      <h3>Shot-by-shot timeline (180s)</h3>
+      <div class="timeline" style="grid-template-columns: 70px 1fr 90px 110px">
+        <div class="h">Time</div><div class="h">Frame · action</div><div class="h">Audio</div><div class="h">Caption / KICK</div>
+
+        <div class="day">0:00</div>
+        <div>Bush 1945 잡지 페이지 fade-in. 한 줄 인용 typed-out.</div>
+        <div>silence</div>
+        <div class="gate">cold open</div>
+
+        <div class="day">0:08</div>
+        <div>Memex app launch. Time Machine stack fly-in.</div>
+        <div>music drops in (mid pulse)</div>
+        <div class="gate">"Time Machine"</div>
+
+        <div class="day">0:18</div>
+        <div>KD-01 contextual chip이 카드에 즉시 채워지는 close-up. "Tauri build · resolved"</div>
+        <div>chime SFX</div>
+        <div class="gate">KD-01 · chips</div>
+
+        <div class="day">0:28</div>
+        <div>Number animation: "80 sessions · 17,938 tool calls" count-up.</div>
+        <div>music swell</div>
+        <div class="gate">"density reveal"</div>
+
+        <div class="day">0:40</div>
+        <div>⌘+T → camera zoom into Topology galaxy. cluster auto-labels 등장 (KD-02).</div>
+        <div>music pulse continues</div>
+        <div class="gate">KD-02 · cluster naming</div>
+
+        <div class="day">0:55</div>
+        <div>Bridge edge 발광 + gap bubble hover: "redesign ↔ yc · sim 0.97 · no bridge". 카메라 천천히 dolly.</div>
+        <div>music · subtle</div>
+        <div class="gate">"connection reveal"</div>
+
+        <div class="day">1:10</div>
+        <div>⌘K → "edit auth.js" 타이핑. <b>BEFORE/AFTER split-screen</b>: 좌측 lens v1 (5 round-trips · 320ms), 우측 v3 FormulaQuery (1 call · 45ms).</div>
+        <div>tick sound on type</div>
+        <div class="gate">KA-01 · FormulaQuery</div>
+
+        <div class="day">1:22</div>
+        <div>contribution bar 살아 움직임. "content .42 · recency ×1.4 · errors +0.2 · final .71" chip이 1위 카드에 표시.</div>
+        <div>music · subtle</div>
+        <div class="gate">KA-01 · score breakdown</div>
+
+        <div class="day">1:32</div>
+        <div>Predict panel: 4×3 thumbnail grid 등장. KD-01 outcome 캡션 ("resolved · symlink fix"). cinematic zoom → Replay.</div>
+        <div>chime</div>
+        <div class="gate">KD-01 · outcome</div>
+
+        <div class="day" style="background:rgba(255,100,130,.15);color:var(--accent-6)">1:42</div>
+        <div style="background:rgba(255,100,130,.05); font-weight:600">⚡ CLIMAX (research/09 director's call) · 다른 터미널에서 <code>cargo build</code> 실패 발생. 카메라가 Memex 앱으로 천천히 pan. <b>음악 완전 fade-out</b>. <b>screen silent for 12 full seconds.</b></div>
+        <div style="background:rgba(255,100,130,.05); color:var(--accent-6)">SILENCE</div>
+        <div class="gate split" style="background:rgba(255,100,130,.05)">⚡ reverse query</div>
+
+        <div class="day" style="background:rgba(255,100,130,.15);color:var(--accent-6)">1:54</div>
+        <div style="background:rgba(255,100,130,.05); font-weight:600">Recall banner slides in from top: "I've seen this before · project-redesign 2026-05-15 · sim 0.93 · ACORN-filtered". 자막: <b>no question asked.</b></div>
+        <div style="background:rgba(255,100,130,.05)">soft banner SFX (Kenney)</div>
+        <div class="gate split" style="background:rgba(255,100,130,.05)">KB-04 ACORN</div>
+
+        <div class="day">2:00</div>
+        <div>음악 복귀 (slower tempo). Mix &amp; Match로 컷.</div>
+        <div>music returns soft</div>
+        <div class="gate">"recovery"</div>
+
+        <div class="day">2:08</div>
+        <div>positive 2 카드 · negative 1 카드 drag. 3D hyperplane 등장.</div>
+        <div>music · build</div>
+        <div class="gate">KB-03 · Discovery</div>
+
+        <div class="day">2:22</div>
+        <div>사용자가 결과 카드에 👍 → anchor 재계산 → 결과 즉시 재정렬 frame.</div>
+        <div>chime</div>
+        <div class="gate">KA-04 · Relevance FB</div>
+
+        <div class="day">2:35</div>
+        <div>전체 surface montage (6장 빠른 컷 + cluster + bridge + heat trail).</div>
+        <div>music · climb</div>
+        <div class="gate">"breadth"</div>
+
+        <div class="day">2:48</div>
+        <div>Title card: "<b>Memex</b> · Your AI session history as spatial memory · Powered by Qdrant 1.18 pinnacle". KICK 목록 시퀀스 자막 fade-out.</div>
+        <div>music · resolve</div>
+        <div class="gate">"thesis"</div>
+
+        <div class="day">2:56</div>
+        <div><code>github.com/ComBba/memex</code> · Apache-2.0 · Qdrant logo · "Built for Qdrant VSD 2026 · Think Outside the Bot ✓"</div>
+        <div>final chime</div>
+        <div class="gate go">outro</div>
+      </div>
+
+      <h3>v3 초안 §8 vs v3.1 director's cut — 차이</h3>
+      <div class="grid grid-2">
+        <article class="card"><h4>v3 초안 (8 균등 segment)</h4>
+        <p style="font-size:13.5px">7 surface 각 24초. 어떤 frame도 peak에 도달 못함. surface order: TM → Topology → Lens → Predict → Recall → Discovery → outro. <b>균등 = 평범</b>.</p></article>
+        <article class="card" style="border-color:rgba(255,100,130,.4)"><h4 style="color:var(--accent-6)">v3.1 director's cut (climax-staged)</h4>
+        <p style="font-size:13.5px"><b>1:42–1:58 reverse query silence</b>가 황금 16초. before/after split (1:10). number count-up (0:28). connection reveal (0:55). 모든 frame이 wow taxonomy 6 패턴 중 하나에 명시적 mapping. <b>VSD 2025 honored 11개 중 0개가 silent reverse query 사용</b> → Memex 차별화.</p></article>
+      </div>
+    </section>
+
+    <!-- ============================ §9 README ============================ -->
+    <section id="s9">
+      <h2><span class="num">§9</span> README + CLAUDE.md update (D-3 PR)</h2>
+      <p class="lede">사용자 명시: "README는 언제든지 변경할 수 있는 것이지 규칙이 아니야". 이 plan에 따른 narrative 갱신.</p>
+
+      <div class="changelog">
+        <h4>Hero copy</h4>
+        <p><span class="from">"No chat box. No LLM call at runtime."</span></p>
+        <p><span class="to">"No chat box. No LLM in the user's hot path. Local Llama enriches your index — never your queries."</span></p>
+      </div>
+
+      <div class="changelog">
+        <h4>Architecture badges</h4>
+        <p><span class="from">100% local · No telemetry · No LLM at runtime · VSD 2026</span></p>
+        <p><span class="to">100% local · No telemetry · No chatbot UX · Qdrant 1.18 pinnacle · VSD 2026</span></p>
+      </div>
+
+      <div class="changelog">
+        <h4>"What Memex does instead of RAG chat" table — add row</h4>
+        <pre style="margin:8px 0"><code>| "Auto-label my project clusters" → LLM writes a paragraph. |
+  <b>Cluster auto-labels via local Gemma 4 E2B at index-time only.
+  ~6-second pass once per scan. Zero query-time LLM.</b> |</code></pre>
+      </div>
+
+      <div class="changelog">
+        <h4>CLAUDE.md invariant 갱신</h4>
+        <p><span class="from">"no LLM call at runtime" — hard invariant</span></p>
+        <p><span class="to">"no chatbot UX · no LLM on user-query hot path · index-time augmentation (Ollama) is optional and degrades gracefully when absent"</span></p>
+      </div>
+
+      <p class="footnote">실제 README.md / CLAUDE.md 수정은 plan v3 확정 후 별도 PR. 본 보고서는 plan일 뿐 코드/문서 변경 0.</p>
+    </section>
+
+    <!-- ============================ §10 SOURCES ============================ -->
+    <section id="s10">
+      <h2><span class="num">§10</span> Sources &amp; Provenance</h2>
+      <p class="lede">v3는 12편 사전조사(v1/v2의 10편 + 추가 2편)를 합성. 7 categories × 25 KICK.</p>
+
+      <h3>15편 사전조사 (v3 → v3.1 = +3)</h3>
+      <div class="sources">
+        <div class="src-card"><div class="label">analysis · backend</div><a href="analysis/01-backend-rust-architecture.md">01-backend-rust-architecture.md</a></div>
+        <div class="src-card"><div class="label">analysis · system</div><a href="analysis/02-system-architecture-decisions.md">02-system-architecture-decisions.md</a></div>
+        <div class="src-card"><div class="label">analysis · frontend</div><a href="analysis/03-frontend-tauri-integration.md">03-frontend-tauri-integration.md</a></div>
+        <div class="src-card"><div class="label">analysis · security</div><a href="analysis/04-security-audit.md">04-security-audit.md</a></div>
+        <div class="src-card"><div class="label">analysis · perf</div><a href="analysis/05-performance-analysis.md">05-performance-analysis.md</a></div>
+        <div class="src-card"><div class="label">research · docs</div><a href="research/01-qdrant-official-docs-2026.md">01-qdrant-official-docs-2026.md</a></div>
+        <div class="src-card"><div class="label">research · blog</div><a href="research/02-qdrant-official-blog.md">02-qdrant-official-blog.md</a></div>
+        <div class="src-card"><div class="label">research · VSD 2026</div><a href="research/03-qdrant-vsd-2026-hackathon.md">03-qdrant-vsd-2026-hackathon.md</a></div>
+        <div class="src-card"><div class="label">research · sparse</div><a href="research/04-sparse-colbert-hybrid.md">04-sparse-colbert-hybrid.md</a></div>
+        <div class="src-card"><div class="label">research · ecosystem</div><a href="research/05-rust-tauri-fastembed-ecosystem.md">05-rust-tauri-fastembed-ecosystem.md</a></div>
+        <div class="src-card" style="border-color:rgba(100,210,255,.4)"><div class="label" style="color:var(--accent-5)">research · 1.18 pinnacle</div><a href="research/06-qdrant-1.18-feature-pinnacle.md">06-qdrant-1.18-feature-pinnacle.md</a></div>
+        <div class="src-card" style="border-color:rgba(100,210,255,.4)"><div class="label" style="color:var(--accent-5)">research · LLM augment</div><a href="research/07-llm-augmentation-no-chat.md">07-llm-augmentation-no-chat.md</a></div>
+        <div class="src-card" style="border-color:rgba(255,214,10,.4)"><div class="label" style="color:var(--accent-4)">research · Gemma 4 (v3.1 NEW)</div><a href="research/08-gemini-gemma-2026-line.md">08-gemini-gemma-2026-line.md</a><p style="margin:4px 0 0;font-size:12px;color:var(--fg-muted)">Gemma 4 GA 2026-04-02 확정</p></div>
+        <div class="src-card" style="border-color:rgba(255,214,10,.4)"><div class="label" style="color:var(--accent-4)">research · demo wow (v3.1 NEW)</div><a href="research/09-hackathon-demo-video-wow.md">09-hackathon-demo-video-wow.md</a><p style="margin:4px 0 0;font-size:12px;color:var(--fg-muted)">12s silence climax · Bensound + Kenney</p></div>
+        <div class="src-card" style="border-color:rgba(255,100,130,.4)"><div class="label" style="color:var(--accent-6)">research · v3 self-audit (v3.1 NEW)</div><a href="research/10-qdrant-pinnacle-v3-coverage-review.md">10-qdrant-pinnacle-v3-coverage-review.md</a><p style="margin:4px 0 0;font-size:12px;color:var(--fg-muted)">ON-TARGET · 8 API-shape corrections · +3 KICK</p></div>
+      </div>
+
+      <h3>v1 / v2 / v3 / v3.1 비교</h3>
+      <table class="risk">
+        <thead><tr><th>축</th><th>v1 (consensus)</th><th>v2 (divergence)</th><th>v3 (pinnacle-first)</th><th>v3.1 (self-audited)</th></tr></thead>
+        <tbody>
+          <tr><td>Hard invariant</td><td>no LLM at runtime</td><td>no LLM at runtime</td><td>Maximize Qdrant 1.18 pinnacle</td><td><b>Same + verified via 5-expert</b></td></tr>
+          <tr><td>KICK 수</td><td>10</td><td>19</td><td>25 (7 categories)</td><td><b>28 (+ KC-01b · KC-06 · KG-04)</b></td></tr>
+          <tr><td>가정 검증</td><td>안 함</td><td>안 함</td><td>2-expert</td><td><b>5-expert (incl. self-audit)</b></td></tr>
+          <tr><td>LLM 정책</td><td>전면 금지</td><td>전면 금지</td><td>Index-time SHIP · Toggle</td><td><b>Gemma 4 E4B/E2B (GA 2026-04-02)</b></td></tr>
+          <tr><td>API-shape errors</td><td>—</td><td>—</td><td>8 (under-detected)</td><td><b>0 (all corrected, KC-01 명칭 fix)</b></td></tr>
+          <tr><td>Demo Script</td><td>균등 8 segment</td><td>균등 + 2 안 보존</td><td>균등 8 segment</td><td><b>Climax-staged · 12s silence at 1:42</b></td></tr>
+          <tr><td>Music / SFX plan</td><td>—</td><td>—</td><td>—</td><td><b>Bensound + Kenney UI Audio (CC0)</b></td></tr>
+        </tbody>
+      </table>
+      <hr/>
+      <p class="footnote">v3.1 authored 2026-05-18 · 5-expert validation (research/06+07+08+09+10) · v3 self-audit 통과 (8 API-shape correction, +3 KICK) · Gemma 4 GA verified · Demo script climax-staged with 12s silence · Music/SFX plan locked · git push restricted to <code>ComBba/memex</code> · no source tree modified by this report.</p>
+    </section>
+
+  </main>
+</div>
+</body>
+</html>
